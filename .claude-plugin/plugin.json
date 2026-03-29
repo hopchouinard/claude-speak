@@ -6,11 +6,5 @@
     "name": "pchouinard"
   },
   "license": "MIT",
-  "keywords": ["voice", "tts", "accessibility", "audio"],
-  "userConfig": {
-    "openai_api_key": {
-      "description": "OpenAI API key for TTS (gpt-4o-mini-tts)",
-      "sensitive": true
-    }
-  }
+  "keywords": ["voice", "tts", "accessibility", "audio"]
 }

@@ -1,6 +1,6 @@
 ---
-name: voice
-description: Speak to the user audibly through text-to-speech. Use when the user may not be watching the screen and something warrants their audible attention.
+name: speak
+description: Speak to the user audibly through text-to-speech. Use when the user may not be watching the screen and something warrants their audible attention. This is NOT the built-in Claude Code voice mode — this uses the claude-voice plugin to generate speech via TTS.
 ---
 
 # Voice Output

@@ -6,10 +6,19 @@ import { playAudio } from './player.js';
 import { writeLock, isLocked } from './lock.js';
 import { handleError } from './error.js';
 import * as path from 'node:path';
+const DEBUG = process.env.CLAUDE_VOICE_DEBUG === '1';
+function debug(msg) {
+    if (DEBUG)
+        process.stderr.write(`[claude-voice] ${msg}\n`);
+}
 export async function run(args, stdin) {
     const config = loadConfig();
-    if (!config.enabled)
+    debug(`enabled=${config.enabled} apiKey=${config.apiKey ? 'set' : 'null'} args=${JSON.stringify(args)}`);
+    debug(`stdin length=${stdin.length} stdin FULL=${JSON.stringify(stdin)}`);
+    if (!config.enabled) {
+        debug('EXIT: disabled');
         return;
+    }
     const sayIndex = args.indexOf('--say');
     const triggerIndex = args.indexOf('--trigger');
     let text = null;
@@ -30,12 +39,16 @@ export async function run(args, stdin) {
         if (isLocked(lockPath, config.cooldown))
             return;
         text = extractMessage(stdin);
+        debug(`extracted text=${text ? text.slice(0, 100) : 'null'}`);
     }
     else {
+        debug('EXIT: no valid args');
         return;
     }
-    if (!text)
+    if (!text) {
+        debug('EXIT: no text');
         return;
+    }
     if (!config.apiKey) {
         handleError(new Error('No API key configured. Set OPENAI_API_KEY or configure via plugin settings.'), config.logFile);
         return;
@@ -60,6 +73,7 @@ export async function run(args, stdin) {
         playAudio(audio, config.playback.command);
     }
     catch (err) {
+        debug(`TTS ERROR: ${err instanceof Error ? err.message : String(err)}`);
         handleError(err, config.logFile);
     }
 }

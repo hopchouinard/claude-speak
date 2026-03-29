@@ -14,6 +14,12 @@ function getDefaults() {
         logFile: path.join(os.homedir(), '.claude-voice', 'logs', 'voice.log'),
     };
 }
+function expandTilde(filePath) {
+    if (filePath.startsWith('~/')) {
+        return path.join(os.homedir(), filePath.slice(2));
+    }
+    return filePath;
+}
 function detectPlaybackCommand() {
     return process.platform === 'darwin' ? 'afplay' : 'paplay';
 }
@@ -21,7 +27,7 @@ export function loadConfig() {
     const DEFAULTS = getDefaults();
     const configPath = path.join(os.homedir(), '.claude-voice.json');
     const envEnabled = process.env.CLAUDE_VOICE_ENABLED;
-    const apiKey = process.env.CLAUDE_PLUGIN_OPTION_OPENAI_API_KEY ?? null;
+    const apiKey = process.env.CLAUDE_PLUGIN_OPTION_OPENAI_API_KEY ?? process.env.OPENAI_API_KEY ?? null;
     if (!fs.existsSync(configPath)) {
         return {
             ...DEFAULTS,
@@ -56,7 +62,7 @@ export function loadConfig() {
         },
         cooldown: fileConfig.cooldown ?? DEFAULTS.cooldown,
         timeout: fileConfig.timeout ?? DEFAULTS.timeout,
-        logFile: fileConfig.logFile ?? DEFAULTS.logFile,
+        logFile: expandTilde(fileConfig.logFile ?? DEFAULTS.logFile),
         enabled: envEnabled !== undefined ? envEnabled === 'true' : true,
         apiKey,
     };

@@ -7,7 +7,7 @@ export class OpenAITTSProvider {
     async synthesize(text, options) {
         const params = {
             model: options.model,
-            voice: options.voice,
+            voice: options.voice.toLowerCase(),
             input: text,
             ...(options.instructions ? { instructions: options.instructions } : {}),
         };
