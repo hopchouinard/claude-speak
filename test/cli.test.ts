@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { run } from '../src/cli.js';
+import { run, isIdleNotification } from '../src/cli.js';
 import * as config from '../src/config.js';
 import * as extractor from '../src/extractor.js';
 import * as sanitizer from '../src/sanitizer.js';
@@ -124,5 +124,51 @@ describe('CLI run', () => {
 
     expect(mockSynthesize).not.toHaveBeenCalled();
     expect(error.handleError).toHaveBeenCalled();
+  });
+
+  it('filters idle notifications on notification trigger', async () => {
+    vi.mocked(extractor.extractMessage).mockReturnValue('Claude is waiting for your input');
+
+    await run(['--trigger', 'notification'], '{}');
+
+    expect(mockSynthesize).not.toHaveBeenCalled();
+  });
+
+  it('allows non-idle notifications on notification trigger', async () => {
+    vi.mocked(extractor.extractMessage).mockReturnValue('Build completed successfully');
+
+    await run(['--trigger', 'notification'], '{}');
+
+    expect(mockSynthesize).toHaveBeenCalled();
+  });
+
+  it('does not filter idle-like text on stop trigger', async () => {
+    vi.mocked(extractor.extractMessage).mockReturnValue('I am waiting for your input on the design.');
+
+    await run(['--trigger', 'stop'], '{}');
+
+    expect(mockSynthesize).toHaveBeenCalled();
+  });
+});
+
+describe('isIdleNotification', () => {
+  it.each([
+    'Claude is waiting for your input',
+    'Waiting for input',
+    'waiting for your response',
+    'Ready for your next input',
+    'Awaiting your input',
+    'Claude is waiting for input.',
+  ])('detects idle notification: %s', (text) => {
+    expect(isIdleNotification(text)).toBe(true);
+  });
+
+  it.each([
+    'I need your input on the database schema',
+    'Build completed successfully',
+    'The tests are waiting to be reviewed',
+    'I updated the config file',
+  ])('allows legitimate message: %s', (text) => {
+    expect(isIdleNotification(text)).toBe(false);
   });
 });

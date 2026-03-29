@@ -58,6 +58,10 @@ describe('loadConfig', () => {
   });
 
   it('returns null apiKey when env var is not set', () => {
+    vi.stubEnv('CLAUDE_PLUGIN_OPTION_OPENAI_API_KEY', '');
+    vi.stubEnv('OPENAI_API_KEY', '');
+    delete process.env.CLAUDE_PLUGIN_OPTION_OPENAI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
     vi.mocked(fs.existsSync).mockReturnValue(true);
     vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({}));
     const config = loadConfig();
