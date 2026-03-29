@@ -1,4 +1,4 @@
-# claude-voice Implementation Plan
+# claude-speak Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -13,7 +13,7 @@
 ## File Structure
 
 ```
-claude-voice/
+claude-speak/
 ├── .claude-plugin/
 │   └── plugin.json               # Plugin manifest with userConfig for API key
 ├── skills/
@@ -29,7 +29,7 @@ claude-voice/
 │   │   ├── interface.ts          # TTSProvider interface + TTSOptions type
 │   │   └── openai.ts             # gpt-4o-mini-tts implementation
 │   ├── player.ts                 # Platform-aware audio playback (afplay/aplay)
-│   ├── config.ts                 # Loads ~/.claude-voice.json + env vars, merges with defaults
+│   ├── config.ts                 # Loads ~/.claude-speak.json + env vars, merges with defaults
 │   ├── lock.ts                   # Timestamp lockfile read/write for active/passive dedup
 │   └── error.ts                  # Beep + log error handler
 ├── test/
@@ -47,7 +47,7 @@ claude-voice/
 ├── .gitignore
 ├── settings.json                 # Default plugin settings
 ├── CLAUDE.md                     # Behavioral guidance for active voice
-├── claude-voice.example.json     # Example user config
+├── claude-speak.example.json     # Example user config
 ├── LICENSE
 └── README.md
 ```
@@ -63,14 +63,14 @@ claude-voice/
 - Create: `.claude-plugin/plugin.json`
 - Create: `hooks/hooks.json`
 - Create: `settings.json`
-- Create: `claude-voice.example.json`
+- Create: `claude-speak.example.json`
 - Create: `LICENSE`
 
 - [ ] **Step 1: Create `package.json`**
 
 ```json
 {
-  "name": "claude-voice",
+  "name": "claude-speak",
   "version": "0.1.0",
   "description": "Voice output layer for Claude Code — passive spoken summaries and active voice capability",
   "type": "module",
@@ -126,7 +126,7 @@ dist/
 
 ```json
 {
-  "name": "claude-voice",
+  "name": "claude-speak",
   "version": "0.1.0",
   "description": "Voice output layer for Claude Code — passive spoken summaries and active voice capability",
   "author": {
@@ -188,7 +188,7 @@ dist/
 {}
 ```
 
-- [ ] **Step 7: Create `claude-voice.example.json`**
+- [ ] **Step 7: Create `claude-speak.example.json`**
 
 ```json
 {
@@ -205,7 +205,7 @@ dist/
   },
   "cooldown": 15,
   "timeout": 30,
-  "logFile": "~/.claude-voice/logs/voice.log"
+  "logFile": "~/.claude-speak/logs/voice.log"
 }
 ```
 
@@ -238,7 +238,7 @@ Expected: "No test files found" or similar, exits cleanly.
 
 ```bash
 git add -A
-git commit -m "chore: scaffold claude-voice plugin project structure"
+git commit -m "chore: scaffold claude-speak plugin project structure"
 ```
 
 ---
@@ -295,8 +295,8 @@ describe('loadConfig', () => {
     expect(config.enabled).toBe(true); // config exists = enabled
   });
 
-  it('respects CLAUDE_VOICE_ENABLED=false env override', () => {
-    vi.stubEnv('CLAUDE_VOICE_ENABLED', 'false');
+  it('respects CLAUDE_SPEAK_ENABLED=false env override', () => {
+    vi.stubEnv('CLAUDE_SPEAK_ENABLED', 'false');
     vi.mocked(fs.existsSync).mockReturnValue(true);
     vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({}));
     const config = loadConfig();
@@ -370,7 +370,7 @@ const DEFAULTS: Omit<VoiceConfig, 'enabled' | 'apiKey' | 'error'> = {
   playback: { command: detectPlaybackCommand() },
   cooldown: 15,
   timeout: 30,
-  logFile: path.join(os.homedir(), '.claude-voice', 'logs', 'voice.log'),
+  logFile: path.join(os.homedir(), '.claude-speak', 'logs', 'voice.log'),
 };
 
 function detectPlaybackCommand(): string {
@@ -378,8 +378,8 @@ function detectPlaybackCommand(): string {
 }
 
 export function loadConfig(): VoiceConfig {
-  const configPath = path.join(os.homedir(), '.claude-voice.json');
-  const envEnabled = process.env.CLAUDE_VOICE_ENABLED;
+  const configPath = path.join(os.homedir(), '.claude-speak.json');
+  const envEnabled = process.env.CLAUDE_SPEAK_ENABLED;
   const apiKey = process.env.CLAUDE_PLUGIN_OPTION_OPENAI_API_KEY ?? null;
 
   if (!fs.existsSync(configPath)) {
@@ -807,7 +807,7 @@ vi.mock('node:fs');
 
 describe('playAudio', () => {
   beforeEach(() => {
-    vi.mocked(fs.mkdtempSync).mockReturnValue('/tmp/claude-voice-abc');
+    vi.mocked(fs.mkdtempSync).mockReturnValue('/tmp/claude-speak-abc');
     vi.mocked(fs.writeFileSync).mockReturnValue(undefined);
     vi.mocked(child_process.spawn).mockReturnValue({
       unref: vi.fn(),
@@ -824,7 +824,7 @@ describe('playAudio', () => {
     playAudio(audio, 'afplay');
 
     expect(fs.writeFileSync).toHaveBeenCalledWith(
-      expect.stringContaining('claude-voice'),
+      expect.stringContaining('claude-speak'),
       audio
     );
   });
@@ -835,7 +835,7 @@ describe('playAudio', () => {
 
     expect(child_process.spawn).toHaveBeenCalledWith(
       'afplay',
-      [expect.stringContaining('claude-voice')],
+      [expect.stringContaining('claude-speak')],
       expect.objectContaining({ detached: true, stdio: 'ignore' })
     );
   });
@@ -868,7 +868,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 export function playAudio(audio: Buffer, command: string): void {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-voice-'));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-speak-'));
   const filePath = path.join(tmpDir, 'output.mp3');
   fs.writeFileSync(filePath, audio);
 
@@ -1494,7 +1494,7 @@ export async function run(args: string[], stdin: string): Promise<void> {
 }
 
 function getLockPath(): string {
-  const dataDir = process.env.CLAUDE_PLUGIN_DATA || path.join(process.env.HOME || '', '.claude-voice');
+  const dataDir = process.env.CLAUDE_PLUGIN_DATA || path.join(process.env.HOME || '', '.claude-speak');
   return path.join(dataDir, 'voice.lock');
 }
 
@@ -1510,7 +1510,7 @@ if (isMainModule) {
     stdin = Buffer.concat(chunks).toString('utf-8');
   }
   run(process.argv.slice(2), stdin).catch((err) => {
-    console.error('claude-voice fatal:', err);
+    console.error('claude-speak fatal:', err);
     process.exit(1);
   });
 }
@@ -1594,7 +1594,7 @@ Replace `<your message here>` with the exact text you want spoken. Write it as n
 <!-- CLAUDE.md -->
 ## Voice Output Capability
 
-This Claude Code session has voice output enabled via the claude-voice plugin.
+This Claude Code session has voice output enabled via the claude-speak plugin.
 
 ### Passive Voice (automatic)
 Your final message at the end of each turn is automatically spoken aloud to the user via text-to-speech. You do not need to do anything for this to work. Write your final messages knowing they may be heard as well as read.
@@ -1677,7 +1677,7 @@ git commit -m "chore: build compiled output and verify plugin structure"
 - [ ] **Step 1: Write README**
 
 ```markdown
-# claude-voice
+# claude-speak
 
 Voice output layer for Claude Code. Speaks Claude's responses aloud so you can work hands-free.
 
@@ -1693,7 +1693,7 @@ Voice output layer for Claude Code. Speaks Claude's responses aloud so you can w
 Install as a Claude Code plugin:
 
 ```bash
-claude plugin install claude-voice
+claude plugin install claude-speak
 ```
 
 You'll be prompted for your OpenAI API key during installation (stored securely in your system keychain).
@@ -1703,19 +1703,19 @@ You'll be prompted for your OpenAI API key during installation (stored securely 
 Copy the example config and customize:
 
 ```bash
-cp claude-voice.example.json ~/.claude-voice.json
+cp claude-speak.example.json ~/.claude-speak.json
 ```
 
-Edit `~/.claude-voice.json` to set your preferred voice, delivery instructions, and hook preferences.
+Edit `~/.claude-speak.json` to set your preferred voice, delivery instructions, and hook preferences.
 
 ### Quick toggle
 
 ```bash
 # Disable voice temporarily
-export CLAUDE_VOICE_ENABLED=false
+export CLAUDE_SPEAK_ENABLED=false
 
 # Re-enable
-export CLAUDE_VOICE_ENABLED=true
+export CLAUDE_SPEAK_ENABLED=true
 ```
 
 ## How it works

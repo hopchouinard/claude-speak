@@ -6,10 +6,10 @@ import { playAudio } from './player.js';
 import { writeLock, isLocked } from './lock.js';
 import { handleError } from './error.js';
 import * as path from 'node:path';
-const DEBUG = process.env.CLAUDE_VOICE_DEBUG === '1';
+const DEBUG = process.env.CLAUDE_SPEAK_DEBUG === '1';
 function debug(msg) {
     if (DEBUG)
-        process.stderr.write(`[claude-voice] ${msg}\n`);
+        process.stderr.write(`[claude-speak] ${msg}\n`);
 }
 export async function run(args, stdin) {
     const config = loadConfig();
@@ -82,10 +82,10 @@ export async function run(args, stdin) {
     }
 }
 function getLockPath() {
-    // Always use ~/.claude-voice/ for the lock file, regardless of CLAUDE_PLUGIN_DATA.
+    // Always use ~/.claude-speak/ for the lock file, regardless of CLAUDE_PLUGIN_DATA.
     // This ensures the active voice (invoked via Bash tool) and passive voice (invoked
     // via hook with CLAUDE_PLUGIN_DATA set) read/write the same file.
-    return path.join(process.env.HOME || '', '.claude-voice', 'voice.lock');
+    return path.join(process.env.HOME || '', '.claude-speak', 'voice.lock');
 }
 // Main execution when run as script
 const isMainModule = process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/'));
@@ -99,7 +99,7 @@ if (isMainModule) {
         stdin = Buffer.concat(chunks).toString('utf-8');
     }
     run(process.argv.slice(2), stdin).catch((err) => {
-        console.error('claude-voice fatal:', err);
+        console.error('claude-speak fatal:', err);
         process.exit(1);
     });
 }

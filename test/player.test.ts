@@ -10,7 +10,7 @@ vi.mock('node:fs');
 
 describe('playAudio', () => {
   beforeEach(() => {
-    vi.mocked(fs.mkdtempSync).mockReturnValue('/tmp/claude-voice-abc');
+    vi.mocked(fs.mkdtempSync).mockReturnValue('/tmp/claude-speak-abc');
     vi.mocked(fs.writeFileSync).mockReturnValue(undefined);
     vi.mocked(child_process.spawn).mockReturnValue({
       unref: vi.fn(),
@@ -27,7 +27,7 @@ describe('playAudio', () => {
     playAudio(audio, 'afplay');
 
     expect(fs.writeFileSync).toHaveBeenCalledWith(
-      expect.stringContaining('claude-voice'),
+      expect.stringContaining('claude-speak'),
       audio
     );
   });
@@ -38,7 +38,7 @@ describe('playAudio', () => {
 
     expect(child_process.spawn).toHaveBeenCalledWith(
       'afplay',
-      [expect.stringContaining('claude-voice')],
+      [expect.stringContaining('claude-speak')],
       expect.objectContaining({ detached: true, stdio: 'ignore' })
     );
   });

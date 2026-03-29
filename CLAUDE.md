@@ -1,6 +1,6 @@
 ## Voice Output Capability
 
-This Claude Code session has voice output enabled via the claude-voice plugin.
+This Claude Code session has voice output enabled via the claude-speak plugin.
 
 ### Passive Voice (automatic)
 Your final message at the end of each turn is automatically spoken aloud to the user via text-to-speech. You do not need to do anything for this to work. Write your final messages knowing they may be heard as well as read.

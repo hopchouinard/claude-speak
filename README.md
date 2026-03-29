@@ -1,4 +1,4 @@
-# claude-voice
+# claude-speak
 
 Voice output layer for Claude Code. Speaks Claude's responses aloud so you can work hands-free.
 
@@ -14,7 +14,7 @@ Voice output layer for Claude Code. Speaks Claude's responses aloud so you can w
 Install as a Claude Code plugin:
 
 ```bash
-claude plugin install claude-voice
+claude plugin install claude-speak
 ```
 
 You'll be prompted for your OpenAI API key during installation (stored securely in your system keychain).
@@ -24,19 +24,19 @@ You'll be prompted for your OpenAI API key during installation (stored securely 
 Copy the example config and customize:
 
 ```bash
-cp claude-voice.example.json ~/.claude-voice.json
+cp claude-speak.example.json ~/.claude-speak.json
 ```
 
-Edit `~/.claude-voice.json` to set your preferred voice, delivery instructions, and hook preferences.
+Edit `~/.claude-speak.json` to set your preferred voice, delivery instructions, and hook preferences.
 
 ### Quick toggle
 
 ```bash
 # Disable voice temporarily
-export CLAUDE_VOICE_ENABLED=false
+export CLAUDE_SPEAK_ENABLED=false
 
 # Re-enable
-export CLAUDE_VOICE_ENABLED=true
+export CLAUDE_SPEAK_ENABLED=true
 ```
 
 ## How it works

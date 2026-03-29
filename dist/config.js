@@ -11,7 +11,7 @@ function getDefaults() {
         playback: { command: detectPlaybackCommand() },
         cooldown: 15,
         timeout: 30,
-        logFile: path.join(os.homedir(), '.claude-voice', 'logs', 'voice.log'),
+        logFile: path.join(os.homedir(), '.claude-speak', 'logs', 'voice.log'),
     };
 }
 function expandTilde(filePath) {
@@ -25,8 +25,8 @@ function detectPlaybackCommand() {
 }
 export function loadConfig() {
     const DEFAULTS = getDefaults();
-    const configPath = path.join(os.homedir(), '.claude-voice.json');
-    const envEnabled = process.env.CLAUDE_VOICE_ENABLED;
+    const configPath = path.join(os.homedir(), '.claude-speak.json');
+    const envEnabled = process.env.CLAUDE_SPEAK_ENABLED;
     const apiKey = process.env.CLAUDE_PLUGIN_OPTION_OPENAI_API_KEY ?? process.env.OPENAI_API_KEY ?? null;
     if (!fs.existsSync(configPath)) {
         return {

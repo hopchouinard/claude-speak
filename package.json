@@ -1,5 +1,5 @@
 {
-  "name": "claude-voice",
+  "name": "claude-speak",
   "version": "0.1.0",
   "description": "Voice output layer for Claude Code — passive spoken summaries and active voice capability",
   "type": "module",

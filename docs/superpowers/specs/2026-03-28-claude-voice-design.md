@@ -1,4 +1,4 @@
-# claude-voice — Design Specification
+# claude-speak — Design Specification
 
 **Date:** 2026-03-28
 **Status:** Approved
@@ -8,7 +8,7 @@
 
 ## 1. Overview
 
-claude-voice is a Claude Code plugin that adds voice output capabilities. It captures Claude Code's final output at the end of a turn and sends it to a text-to-speech system for local audio playback. It also gives Claude Code active awareness of its voice capability, allowing it to deliberately speak when something warrants audible attention.
+claude-speak is a Claude Code plugin that adds voice output capabilities. It captures Claude Code's final output at the end of a turn and sends it to a text-to-speech system for local audio playback. It also gives Claude Code active awareness of its voice capability, allowing it to deliberately speak when something warrants audible attention.
 
 The input side (voice-to-text) is out of scope. The user already handles this with Wispr Flow. This project is the "voice out" half only.
 
@@ -81,7 +81,7 @@ Parses arguments, loads config, and wires the pipeline. Two modes:
 - `--trigger <stop|notification>`: Passive mode. Reads JSON from stdin, runs extractor, then pipeline.
 - `--say "<text>"`: Active mode. Skips extractor, feeds text directly into pipeline.
 
-Also checks `CLAUDE_VOICE_ENABLED` env var and exits immediately if disabled.
+Also checks `CLAUDE_SPEAK_ENABLED` env var and exits immediately if disabled.
 
 ### 4.2 Extractor (`src/extractor.ts`)
 
@@ -145,7 +145,7 @@ Spawns the playback command as a detached background process. Non-blocking — t
 
 Merges two sources:
 
-**Config file (`~/.claude-voice.json`):**
+**Config file (`~/.claude-speak.json`):**
 ```json
 {
   "provider": "openai",
@@ -161,12 +161,12 @@ Merges two sources:
   },
   "cooldown": 15,
   "timeout": 30,
-  "logFile": "~/.claude-voice/logs/voice.log"
+  "logFile": "~/.claude-speak/logs/voice.log"
 }
 ```
 
 **Environment variables:**
-- `CLAUDE_VOICE_ENABLED` — Quick on/off toggle (default: `true` when config exists)
+- `CLAUDE_SPEAK_ENABLED` — Quick on/off toggle (default: `true` when config exists)
 
 **Plugin `userConfig` (prompted at install):**
 - `openai_api_key` — Stored in system keychain via Claude Code's plugin system. Accessed at runtime via `CLAUDE_PLUGIN_OPTION_OPENAI_API_KEY` env var.
@@ -193,7 +193,7 @@ On any failure (TTS API error, playback failure, network timeout):
 ## 5. Plugin Structure
 
 ```
-claude-voice/
+claude-speak/
 ├── .claude-plugin/
 │   └── plugin.json               # Plugin manifest
 ├── skills/
@@ -220,7 +220,7 @@ claude-voice/
 ├── tsconfig.json
 ├── settings.json                 # Default plugin settings
 ├── CLAUDE.md                     # Behavioral guidance for active voice
-├── claude-voice.example.json     # Example user config
+├── claude-speak.example.json     # Example user config
 ├── LICENSE
 ├── CHANGELOG.md
 └── README.md
@@ -230,7 +230,7 @@ claude-voice/
 
 ```json
 {
-  "name": "claude-voice",
+  "name": "claude-speak",
   "version": "0.1.0",
   "description": "Voice output layer for Claude Code — passive spoken summaries and active voice capability",
   "author": {
@@ -296,7 +296,7 @@ The compiled CLI in `dist/` references modules from the persistent data director
 
 ## 6. Configuration
 
-### 6.1 User Config File (`~/.claude-voice.json`)
+### 6.1 User Config File (`~/.claude-speak.json`)
 
 Non-secret preferences. Safe to back up, share, or version control.
 
@@ -311,19 +311,19 @@ Non-secret preferences. Safe to back up, share, or version control.
 | `playback.command` | string | auto-detected | Playback command |
 | `cooldown` | number | `15` | Active/passive dedup window in seconds |
 | `timeout` | number | `30` | Max seconds before killing a hung TTS call |
-| `logFile` | string | `"~/.claude-voice/logs/voice.log"` | Error log location |
+| `logFile` | string | `"~/.claude-speak/logs/voice.log"` | Error log location |
 
 ### 6.2 Environment Variables
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `CLAUDE_VOICE_ENABLED` | Quick on/off toggle | `true` when config exists |
+| `CLAUDE_SPEAK_ENABLED` | Quick on/off toggle | `true` when config exists |
 | `CLAUDE_PLUGIN_OPTION_OPENAI_API_KEY` | API key (set by plugin system from keychain) | — |
 
 ### 6.3 Precedence
 
 1. Environment variables (highest)
-2. User config file (`~/.claude-voice.json`)
+2. User config file (`~/.claude-speak.json`)
 3. Built-in defaults (lowest)
 
 ---

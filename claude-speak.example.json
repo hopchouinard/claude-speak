@@ -12,5 +12,5 @@
   },
   "cooldown": 10,
   "timeout": 30,
-  "logFile": "~/.claude-voice/logs/voice.log"
+  "logFile": "~/.claude-speak/logs/voice.log"
 }

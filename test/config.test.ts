@@ -41,8 +41,8 @@ describe('loadConfig', () => {
     expect(config.enabled).toBe(true);
   });
 
-  it('respects CLAUDE_VOICE_ENABLED=false env override', () => {
-    vi.stubEnv('CLAUDE_VOICE_ENABLED', 'false');
+  it('respects CLAUDE_SPEAK_ENABLED=false env override', () => {
+    vi.stubEnv('CLAUDE_SPEAK_ENABLED', 'false');
     vi.mocked(fs.existsSync).mockReturnValue(true);
     vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({}));
     const config = loadConfig();

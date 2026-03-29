@@ -1,6 +1,6 @@
 ---
 name: speak
-description: Speak to the user audibly through text-to-speech. Use when the user may not be watching the screen and something warrants their audible attention. This is NOT the built-in Claude Code voice mode — this uses the claude-voice plugin to generate speech via TTS.
+description: Speak to the user audibly through text-to-speech. Use when the user may not be watching the screen and something warrants their audible attention. This is NOT the built-in Claude Code voice mode — this uses the claude-speak plugin to generate speech via TTS.
 ---
 
 # Voice Output
@@ -13,12 +13,12 @@ Run these two commands in sequence via the Bash tool. The first writes a lock fi
 
 **Step 1 — Write the lock (must run first, in its own Bash call):**
 ```bash
-mkdir -p ~/.claude-voice && date +%s000 > ~/.claude-voice/voice.lock
+mkdir -p ~/.claude-speak && date +%s000 > ~/.claude-speak/voice.lock
 ```
 
 **Step 2 — Speak (separate Bash call, after step 1 completes):**
 ```bash
-node /Volumes/NVMe_2TB_Work/Development/claude-voice/dist/cli.js --say "<your message here>"
+node /Volumes/NVMe_2TB_Work/Development/claude-speak/dist/cli.js --say "<your message here>"
 ```
 
 Replace `<your message here>` with the exact text you want spoken. Write it as natural speech — short, direct sentences. No markdown, no code blocks, no file paths unless they are essential to understanding.
