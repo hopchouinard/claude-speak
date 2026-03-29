@@ -10,7 +10,7 @@ You can also choose to speak to the user at any point during your turn using the
 
 Invoke it by running:
 ```bash
-node ~/.claude-speak/dist/cli.js --say "<message>"
+node "$(cat ~/.claude-speak/plugin-root)/dist/cli.js" --say "<message>"
 ```
 
 ### Guidelines
