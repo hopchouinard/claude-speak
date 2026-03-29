@@ -18,7 +18,7 @@ mkdir -p ~/.claude-speak && date +%s000 > ~/.claude-speak/voice.lock
 
 **Step 2 — Speak (separate Bash call, after step 1 completes):**
 ```bash
-node /Volumes/NVMe_2TB_Work/Development/claude-speak/dist/cli.js --say "<your message here>"
+node ~/.claude-speak/dist/cli.js --say "<your message here>"
 ```
 
 Replace `<your message here>` with the exact text you want spoken. Write it as natural speech — short, direct sentences. No markdown, no code blocks, no file paths unless they are essential to understanding.
