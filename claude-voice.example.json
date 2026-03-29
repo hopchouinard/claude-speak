@@ -1,8 +1,8 @@
 {
   "provider": "openai",
   "model": "gpt-4o-mini-tts-2025-12-15",
-  "voice": "ash",
-  "instructions": "",
+  "voice": "Marin",
+  "instructions": "Speak in a cheeky, conversational tone. Be direct and concise.",
   "hooks": {
     "stop": true,
     "notification": true
@@ -10,7 +10,7 @@
   "playback": {
     "command": "afplay"
   },
-  "cooldown": 15,
+  "cooldown": 10,
   "timeout": 30,
   "logFile": "~/.claude-voice/logs/voice.log"
 }

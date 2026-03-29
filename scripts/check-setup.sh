@@ -4,14 +4,18 @@
 # API keys are NEVER prompted for within Claude Code — users set them manually.
 
 CONFIG_FILE="$HOME/.claude-voice.json"
+ENV_FILE="$HOME/.claude-voice/env"
 EXAMPLE_CONFIG="${CLAUDE_PLUGIN_ROOT}/claude-voice.example.json"
 HAS_ISSUES=false
 ISSUES=""
 
-# Check for API key
-if [ -z "$OPENAI_API_KEY" ] && [ -z "$CLAUDE_PLUGIN_OPTION_OPENAI_API_KEY" ]; then
-  HAS_ISSUES=true
-  ISSUES="${ISSUES}\n- **OPENAI_API_KEY not set.** Add \`export OPENAI_API_KEY=sk-your-key-here\` to your shell profile (~/.zshrc or ~/.bashrc), then restart your terminal."
+# Check for env file with API key
+if [ ! -f "$ENV_FILE" ] || ! grep -q "OPENAI_API_KEY" "$ENV_FILE" 2>/dev/null; then
+  # Fallback: check if it's in the environment already
+  if [ -z "$OPENAI_API_KEY" ] && [ -z "$CLAUDE_PLUGIN_OPTION_OPENAI_API_KEY" ]; then
+    HAS_ISSUES=true
+    ISSUES="${ISSUES}\n- **API key not configured.** Create the file \`~/.claude-voice/env\` with this content:\n  \`export OPENAI_API_KEY=sk-your-key-here\`\n  This file is sourced by the voice hooks and keeps your key out of Claude's context."
+  fi
 fi
 
 # Check for config file
@@ -25,7 +29,7 @@ if [ "$HAS_ISSUES" = true ]; then
 {
   "hookSpecificOutput": {
     "hookEventName": "SessionStart",
-    "additionalContext": "## claude-voice Plugin — Setup Required\n\nThe claude-voice plugin is installed but not fully configured:\n${ISSUES}\n\nIMPORTANT: Do NOT ask the user for their API key. Direct them to set it in their shell profile manually. Never handle API keys within a Claude Code session.\n\nOnce configured, restart Claude Code. Your responses will be spoken aloud automatically, and you can use the speak skill to speak deliberately during a turn."
+    "additionalContext": "## claude-voice Plugin — Setup Required\n\nThe claude-voice plugin is installed but not fully configured:\n${ISSUES}\n\nIMPORTANT: Do NOT ask the user for their API key. Direct them to set it in ~/.claude-voice/env manually. Never handle API keys within a Claude Code session.\n\nOnce configured, restart Claude Code. Your responses will be spoken aloud automatically, and you can use the speak skill to speak deliberately during a turn."
   }
 }
 EOF

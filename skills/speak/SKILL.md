@@ -9,13 +9,21 @@ You have the ability to speak to the user audibly using text-to-speech.
 
 ## How to invoke
 
-Run this command via the Bash tool:
+Run these two commands in sequence via the Bash tool. The first writes a lock file that prevents the end-of-turn hook from speaking over you. The second does the actual speech.
 
+**Step 1 — Write the lock (must run first, in its own Bash call):**
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/dist/cli.js" --say "<your message here>"
+mkdir -p ~/.claude-voice && date +%s000 > ~/.claude-voice/voice.lock
+```
+
+**Step 2 — Speak (separate Bash call, after step 1 completes):**
+```bash
+node /Volumes/NVMe_2TB_Work/Development/claude-voice/dist/cli.js --say "<your message here>"
 ```
 
 Replace `<your message here>` with the exact text you want spoken. Write it as natural speech — short, direct sentences. No markdown, no code blocks, no file paths unless they are essential to understanding.
+
+IMPORTANT: Always run step 1 before step 2. Never combine them into one command. The lock file prevents the passive end-of-turn hook from duplicating your message.
 
 ## When to use
 

@@ -26,7 +26,8 @@ export async function run(args: string[], stdin: string): Promise<void> {
   let isActiveVoice = false;
 
   if (sayIndex !== -1 && args[sayIndex + 1]) {
-    // Active voice mode
+    // Active voice mode — write lock immediately so the Stop hook sees it
+    writeLock(getLockPath());
     text = args[sayIndex + 1];
     isActiveVoice = true;
   } else if (triggerIndex !== -1 && args[triggerIndex + 1]) {
@@ -38,7 +39,8 @@ export async function run(args: string[], stdin: string): Promise<void> {
 
     // Check lockfile for active/passive dedup
     const lockPath = getLockPath();
-    if (isLocked(lockPath, config.cooldown)) return;
+    debug(`lockPath=${lockPath} cooldown=${config.cooldown} locked=${isLocked(lockPath, config.cooldown)}`);
+    if (isLocked(lockPath, config.cooldown)) { debug('EXIT: locked by active voice'); return; }
 
     text = extractMessage(stdin);
     debug(`extracted text=${text ? text.slice(0, 100) : 'null'}`);
@@ -58,11 +60,6 @@ export async function run(args: string[], stdin: string): Promise<void> {
   const sanitized = sanitize(text);
   if (!sanitized) return;
 
-  // Write lock if active voice
-  if (isActiveVoice) {
-    writeLock(getLockPath());
-  }
-
   // TTS
   try {
     const provider = new OpenAITTSProvider(config.apiKey);
@@ -74,6 +71,11 @@ export async function run(args: string[], stdin: string): Promise<void> {
 
     // Play
     playAudio(audio, config.playback.command);
+
+    // Refresh lock after playback starts so the Stop hook sees a fresh timestamp
+    if (isActiveVoice) {
+      writeLock(getLockPath());
+    }
   } catch (err) {
     debug(`TTS ERROR: ${err instanceof Error ? err.message : String(err)}`);
     handleError(err, config.logFile);
@@ -81,8 +83,10 @@ export async function run(args: string[], stdin: string): Promise<void> {
 }
 
 function getLockPath(): string {
-  const dataDir = process.env.CLAUDE_PLUGIN_DATA || path.join(process.env.HOME || '', '.claude-voice');
-  return path.join(dataDir, 'voice.lock');
+  // Always use ~/.claude-voice/ for the lock file, regardless of CLAUDE_PLUGIN_DATA.
+  // This ensures the active voice (invoked via Bash tool) and passive voice (invoked
+  // via hook with CLAUDE_PLUGIN_DATA set) read/write the same file.
+  return path.join(process.env.HOME || '', '.claude-voice', 'voice.lock');
 }
 
 // Main execution when run as script

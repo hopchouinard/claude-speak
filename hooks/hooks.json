@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "CLAUDE_VOICE_DEBUG=1 node \"${CLAUDE_PLUGIN_ROOT}/dist/cli.js\" --trigger stop"
+            "command": "sleep 2 && test -f ~/.claude-voice/env && . ~/.claude-voice/env; node \"${CLAUDE_PLUGIN_ROOT}/dist/cli.js\" --trigger stop"
           }
         ]
       }
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/cli.js\" --trigger notification"
+            "command": "test -f ~/.claude-voice/env && . ~/.claude-voice/env; node \"${CLAUDE_PLUGIN_ROOT}/dist/cli.js\" --trigger notification"
           }
         ]
       }
