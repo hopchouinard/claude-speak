@@ -25,10 +25,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "test -n \"${CLAUDE_PLUGIN_ROOT}\" && (test -d \"${CLAUDE_PLUGIN_ROOT}/node_modules/openai\" || (cd \"${CLAUDE_PLUGIN_ROOT}\" && npm install --omit=dev)) || true"
-          },
-          {
-            "type": "command",
             "command": "mkdir -p ~/.claude-speak && printf '%s' \"${CLAUDE_PLUGIN_ROOT}\" > ~/.claude-speak/plugin-root && printf '%s' \"${CLAUDE_PLUGIN_DATA}\" > ~/.claude-speak/plugin-data"
           },
           {
