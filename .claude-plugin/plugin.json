@@ -1,0 +1,16 @@
+{
+  "name": "claude-voice",
+  "version": "0.1.0",
+  "description": "Voice output layer for Claude Code — passive spoken summaries and active voice capability",
+  "author": {
+    "name": "pchouinard"
+  },
+  "license": "MIT",
+  "keywords": ["voice", "tts", "accessibility", "audio"],
+  "userConfig": {
+    "openai_api_key": {
+      "description": "OpenAI API key for TTS (gpt-4o-mini-tts)",
+      "sensitive": true
+    }
+  }
+}

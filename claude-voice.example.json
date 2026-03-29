@@ -1,0 +1,16 @@
+{
+  "provider": "openai",
+  "model": "gpt-4o-mini-tts-2025-12-15",
+  "voice": "ash",
+  "instructions": "",
+  "hooks": {
+    "stop": true,
+    "notification": true
+  },
+  "playback": {
+    "command": "afplay"
+  },
+  "cooldown": 15,
+  "timeout": 30,
+  "logFile": "~/.claude-voice/logs/voice.log"
+}
