@@ -13531,6 +13531,10 @@ async function run(args, stdin) {
     }
     text = extractMessage(stdin);
     debug2(`extracted text=${text ? text.slice(0, 100) : "null"}`);
+    if (triggerType === "notification" && text && isIdleNotification(text)) {
+      debug2("EXIT: filtered idle notification");
+      return;
+    }
   } else {
     debug2("EXIT: no valid args");
     return;
@@ -13561,6 +13565,15 @@ async function run(args, stdin) {
     handleError(err, config.logFile);
   }
 }
+var IDLE_NOTIFICATION_PATTERNS = [
+  /waiting\s+for\s+(your\s+)?input/i,
+  /waiting\s+for\s+(your\s+)?response/i,
+  /ready\s+for\s+(your\s+)?(next\s+)?input/i,
+  /awaiting\s+(your\s+)?input/i
+];
+function isIdleNotification(text) {
+  return IDLE_NOTIFICATION_PATTERNS.some((pattern) => pattern.test(text));
+}
 function getLockPath() {
   return path5.join(process.env.HOME || "", ".claude-speak", "voice.lock");
 }
@@ -13580,6 +13593,7 @@ if (isMainModule) {
   });
 }
 export {
+  isIdleNotification,
   run
 };
 /*! Bundled license information:
