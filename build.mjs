@@ -13,4 +13,9 @@ await build({
   banner: {
     js: `import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);`,
   },
+  // Alias 'punycode' to the userland package so dependencies don't
+  // hit Node's deprecated built-in at runtime.
+  alias: {
+    punycode: 'punycode/',
+  },
 });
