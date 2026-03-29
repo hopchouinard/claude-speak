@@ -9,17 +9,14 @@ export class OpenAITTSProvider implements TTSProvider {
   }
 
   async synthesize(text: string, options: TTSOptions): Promise<Buffer> {
-    const params: Record<string, unknown> = {
+    const params = {
       model: options.model,
       voice: options.voice,
       input: text,
-    };
+      ...(options.instructions ? { instructions: options.instructions } : {}),
+    } as Parameters<typeof this.client.audio.speech.create>[0];
 
-    if (options.instructions) {
-      params.instructions = options.instructions;
-    }
-
-    const response = await this.client.audio.speech.create(params as Parameters<typeof this.client.audio.speech.create>[0]);
+    const response = await this.client.audio.speech.create(params);
     const arrayBuffer = await response.arrayBuffer();
     return Buffer.from(arrayBuffer);
   }
