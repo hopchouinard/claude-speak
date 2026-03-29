@@ -1,0 +1,128 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { run } from '../src/cli.js';
+import * as config from '../src/config.js';
+import * as extractor from '../src/extractor.js';
+import * as sanitizer from '../src/sanitizer.js';
+import * as lock from '../src/lock.js';
+import * as player from '../src/player.js';
+import * as error from '../src/error.js';
+
+vi.mock('../src/config.js');
+vi.mock('../src/extractor.js');
+vi.mock('../src/sanitizer.js');
+vi.mock('../src/lock.js');
+vi.mock('../src/player.js');
+vi.mock('../src/error.js');
+
+// Mock the TTS provider
+const mockSynthesize = vi.fn();
+vi.mock('../src/tts/openai.js', () => ({
+  OpenAITTSProvider: class {
+    synthesize = mockSynthesize;
+  },
+}));
+
+function makeConfig(overrides: Partial<config.VoiceConfig> = {}): config.VoiceConfig {
+  return {
+    enabled: true,
+    provider: 'openai',
+    model: 'gpt-4o-mini-tts-2025-12-15',
+    voice: 'ash',
+    instructions: '',
+    apiKey: 'sk-test',
+    hooks: { stop: true, notification: true },
+    playback: { command: 'afplay' },
+    cooldown: 15,
+    timeout: 30,
+    logFile: '/tmp/voice.log',
+    ...overrides,
+  };
+}
+
+describe('CLI run', () => {
+  beforeEach(() => {
+    vi.mocked(config.loadConfig).mockReturnValue(makeConfig());
+    vi.mocked(sanitizer.sanitize).mockImplementation((t) => t);
+    vi.mocked(lock.isLocked).mockReturnValue(false);
+    vi.mocked(lock.writeLock).mockReturnValue(undefined);
+    vi.mocked(player.playAudio).mockReturnValue(undefined);
+    vi.mocked(error.handleError).mockReturnValue(undefined);
+    mockSynthesize.mockResolvedValue(Buffer.from('audio'));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('exits immediately when voice is disabled', async () => {
+    vi.mocked(config.loadConfig).mockReturnValue(makeConfig({ enabled: false }));
+    await run(['--trigger', 'stop'], '');
+    expect(mockSynthesize).not.toHaveBeenCalled();
+  });
+
+  it('processes --say argument through the pipeline', async () => {
+    await run(['--say', 'Hello world'], '');
+
+    expect(sanitizer.sanitize).toHaveBeenCalledWith('Hello world');
+    expect(mockSynthesize).toHaveBeenCalled();
+    expect(player.playAudio).toHaveBeenCalled();
+  });
+
+  it('writes lock when using --say (active voice)', async () => {
+    await run(['--say', 'Hello'], '');
+    expect(lock.writeLock).toHaveBeenCalled();
+  });
+
+  it('processes --trigger by extracting from stdin', async () => {
+    const stdinData = JSON.stringify({
+      message: { role: 'assistant', content: 'Done with the task.' },
+    });
+    vi.mocked(extractor.extractMessage).mockReturnValue('Done with the task.');
+
+    await run(['--trigger', 'stop'], stdinData);
+
+    expect(extractor.extractMessage).toHaveBeenCalledWith(stdinData);
+    expect(sanitizer.sanitize).toHaveBeenCalledWith('Done with the task.');
+    expect(mockSynthesize).toHaveBeenCalled();
+  });
+
+  it('skips passive voice when lock is active', async () => {
+    vi.mocked(lock.isLocked).mockReturnValue(true);
+    vi.mocked(extractor.extractMessage).mockReturnValue('Some message');
+
+    await run(['--trigger', 'stop'], '{}');
+
+    expect(mockSynthesize).not.toHaveBeenCalled();
+  });
+
+  it('skips when hook type is disabled in config', async () => {
+    vi.mocked(config.loadConfig).mockReturnValue(makeConfig({
+      hooks: { stop: false, notification: true },
+    }));
+    vi.mocked(extractor.extractMessage).mockReturnValue('Some message');
+
+    await run(['--trigger', 'stop'], '{}');
+
+    expect(mockSynthesize).not.toHaveBeenCalled();
+  });
+
+  it('calls error handler on TTS failure', async () => {
+    mockSynthesize.mockRejectedValue(new Error('API down'));
+
+    await run(['--say', 'Hello'], '');
+
+    expect(error.handleError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.any(String)
+    );
+  });
+
+  it('exits when no API key is configured', async () => {
+    vi.mocked(config.loadConfig).mockReturnValue(makeConfig({ apiKey: null }));
+
+    await run(['--say', 'Hello'], '');
+
+    expect(mockSynthesize).not.toHaveBeenCalled();
+    expect(error.handleError).toHaveBeenCalled();
+  });
+});
