@@ -11,6 +11,8 @@ You have the ability to speak to the user audibly using text-to-speech.
 
 Run these two commands in sequence via the Bash tool. The first writes a lock file that prevents the end-of-turn hook from speaking over you. The second does the actual speech.
 
+The plugin root is derived from this skill's base directory (two levels up). When Claude Code loads this skill it prints a line like `Base directory for this skill: /path/to/skills/speak`. Use that path to build the CLI path below.
+
 **Step 1 — Write the lock (must run first, in its own Bash call):**
 ```bash
 mkdir -p ~/.claude-speak && date +%s000 > ~/.claude-speak/voice.lock
@@ -18,10 +20,10 @@ mkdir -p ~/.claude-speak && date +%s000 > ~/.claude-speak/voice.lock
 
 **Step 2 — Speak (separate Bash call, after step 1 completes):**
 ```bash
-node "$(cat ~/.claude-speak/plugin-root)/dist/cli.js" --say "<your message here>"
+node "<SKILL_BASE_DIR>/../../dist/cli.js" --say "<your message here>"
 ```
 
-Replace `<your message here>` with the exact text you want spoken. Write it as natural speech — short, direct sentences. No markdown, no code blocks, no file paths unless they are essential to understanding.
+Replace `<SKILL_BASE_DIR>` with the base directory shown when this skill was loaded (e.g. `/path/to/claude-speak/1.0.0/skills/speak`). Replace `<your message here>` with the exact text you want spoken. Write it as natural speech — short, direct sentences. No markdown, no code blocks, no file paths unless they are essential to understanding.
 
 IMPORTANT: Always run step 1 before step 2. Never combine them into one command. The lock file prevents the passive end-of-turn hook from duplicating your message.
 

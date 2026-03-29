@@ -6,12 +6,9 @@ This Claude Code session has voice output enabled via the claude-speak plugin.
 Your final message at the end of each turn is automatically spoken aloud to the user via text-to-speech. You do not need to do anything for this to work. Write your final messages knowing they may be heard as well as read.
 
 ### Active Voice (deliberate)
-You can also choose to speak to the user at any point during your turn using the `voice` skill. Use this when something is important enough to warrant the user's immediate audible attention, even if they are not watching the screen.
+You can also choose to speak to the user at any point during your turn using the `speak` skill. Use this when something is important enough to warrant the user's immediate audible attention, even if they are not watching the screen.
 
-Invoke it by running:
-```bash
-node "$(cat ~/.claude-speak/plugin-root)/dist/cli.js" --say "<message>"
-```
+Invoke it by using the Skill tool with `speak` and providing your message as the argument. The skill will provide the exact commands to run.
 
 ### Guidelines
 - Do not overuse active voice. If your end-of-turn message will cover it, let the passive hook handle it.
