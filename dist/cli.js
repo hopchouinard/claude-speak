@@ -13826,7 +13826,7 @@ async function handleSpeed(args) {
   return { message: `Speed set to ${value} for ${provider}.`, speak: true };
 }
 async function handleVoice(args) {
-  const name = args[0];
+  const name = args.join(" ").trim();
   if (!name) {
     return { message: "Usage: voice <name>", speak: false, error: true };
   }

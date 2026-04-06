@@ -118,7 +118,7 @@ async function handleSpeed(args: string[]): Promise<SubcommandResult> {
 }
 
 async function handleVoice(args: string[]): Promise<SubcommandResult> {
-  const name = args[0];
+  const name = args.join(' ').trim();
   if (!name) {
     return { message: 'Usage: voice <name>', speak: false, error: true };
   }
