@@ -280,13 +280,31 @@ claude-speak supports both OpenAI and ElevenLabs TTS providers. Both can be full
    /speak voice Rachel
    ```
 
-### Voice Cache
+### Voice Management
 
-When you run `/speak voices` with ElevenLabs active, the plugin calls the ElevenLabs API to fetch voices in your account and caches them locally at `~/.claude-speak/voices-elevenlabs.json`. This cache is used for name-to-ID resolution so you can configure voices by name instead of UUID.
+ElevenLabs voices are identified by UUIDs internally, but the plugin lets you select voices by name. Behind the scenes, `/speak voices` fetches the voices in your ElevenLabs account and caches them locally at `~/.claude-speak/voices-elevenlabs.json`. This cache is used for name-to-ID resolution.
 
-To refresh the cache (e.g., after adding new voices to your ElevenLabs account), run `/speak voices` again.
+**Name matching** is flexible. The plugin tries, in order:
 
-OpenAI voices are hardcoded (the list is small and static) and don't require caching.
+1. **Exact match** -- `Rachel` matches `Rachel`
+2. **Prefix match** -- `Nina` matches `Nina - nerdy`
+3. **Substring match** -- `nerdy` matches `Nina - nerdy`
+
+**Multi-word names** are supported. If a voice has a descriptive name like `Nina - nerdy` or `Sarah - Mature, Reassuring`, you can type the full name:
+
+```
+/speak voice Nina - nerdy
+```
+
+**Ambiguous matches** are handled safely. If your search term matches multiple voices (e.g., `Sarah` matches both `Sarah - Mature` and `Sarah - Soft`), the plugin shows all candidates and asks you to be more specific rather than silently picking one.
+
+**Refreshing the cache:** Run `/speak voices` again after adding new voices to your ElevenLabs account.
+
+**Raw voice IDs** also work. If a name can't be resolved from the cache, the plugin treats the input as a raw voice ID. So you can always paste a UUID directly if needed.
+
+### OpenAI Voices
+
+OpenAI voices are a fixed set and don't require caching. The available voices are: alloy, ash, ballad, cedar, coral, echo, fable, marin, nova, onyx, sage, shimmer, verse.
 
 ## Deduplication and Cooldown
 
