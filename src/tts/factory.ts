@@ -13,7 +13,7 @@ export function createProvider(providerName: string, apiKeys: ApiKeys): TTSProvi
     }
     case 'elevenlabs': {
       if (!apiKeys.elevenlabs) {
-        throw new Error('ElevenLabs API key not found. Add `export ELEVENLABS_API_KEY=xi-...` to ~/.claude-speak/env');
+        throw new Error('ElevenLabs API key not found. Reinstall the plugin to configure it, or set ELEVENLABS_API_KEY in your environment.');
       }
       return new ElevenLabsTTSProvider(apiKeys.elevenlabs);
     }

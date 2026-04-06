@@ -1,7 +1,7 @@
 #!/bin/bash
 # check-setup.sh — Runs on SessionStart to verify claude-speak is configured.
 # Outputs setup instructions as additionalContext if config is missing.
-# API keys are NEVER prompted for within Claude Code — users set them manually.
+# API keys are configured via plugin settings (keychain) or environment variables.
 
 CONFIG_FILE="$HOME/.claude-speak.json"
 ENV_FILE="$HOME/.claude-speak/env"
@@ -12,19 +12,20 @@ ISSUES=""
 # Clean session state from previous session (fresh start)
 rm -f "$HOME/.claude-speak/session.json"
 
-# Check for env file with API key (accept OpenAI or ElevenLabs)
+# Check for API key from any source: keychain (plugin options), env file, or shell env
 HAS_API_KEY=false
-if [ -f "$ENV_FILE" ]; then
+if [ -n "$CLAUDE_PLUGIN_OPTION_OPENAI_API_KEY" ] || [ -n "$CLAUDE_PLUGIN_OPTION_ELEVENLABS_API_KEY" ]; then
+  HAS_API_KEY=true
+elif [ -n "$OPENAI_API_KEY" ] || [ -n "$ELEVENLABS_API_KEY" ]; then
+  HAS_API_KEY=true
+elif [ -f "$ENV_FILE" ]; then
   if grep -q "OPENAI_API_KEY" "$ENV_FILE" 2>/dev/null || grep -q "ELEVENLABS_API_KEY" "$ENV_FILE" 2>/dev/null; then
     HAS_API_KEY=true
   fi
 fi
-if [ -n "$OPENAI_API_KEY" ] || [ -n "$CLAUDE_PLUGIN_OPTION_OPENAI_API_KEY" ] || [ -n "$ELEVENLABS_API_KEY" ] || [ -n "$CLAUDE_PLUGIN_OPTION_ELEVENLABS_API_KEY" ]; then
-  HAS_API_KEY=true
-fi
 if [ "$HAS_API_KEY" = false ]; then
   HAS_ISSUES=true
-  ISSUES="${ISSUES}\n- **API key not configured.** Create the file \`~/.claude-speak/env\` with your provider key:\n  \`export OPENAI_API_KEY=sk-your-key-here\` (for OpenAI)\n  \`export ELEVENLABS_API_KEY=your-key-here\` (for ElevenLabs)\n  This file is sourced by the voice hooks and keeps your key out of Claude's context."
+  ISSUES="${ISSUES}\n- **API key not configured.** Reinstall the plugin (\`claude plugin install claude-speak\`) to set your API key securely via the system keychain. Alternatively, set \`OPENAI_API_KEY\` or \`ELEVENLABS_API_KEY\` in your shell profile."
 fi
 
 # Check for config file
@@ -38,7 +39,7 @@ if [ "$HAS_ISSUES" = true ]; then
 {
   "hookSpecificOutput": {
     "hookEventName": "SessionStart",
-    "additionalContext": "## claude-speak Plugin — Setup Required\n\nThe claude-speak plugin is installed but not fully configured:\n${ISSUES}\n\nIMPORTANT: Do NOT ask the user for their API key. Direct them to set it in ~/.claude-speak/env manually. Never handle API keys within a Claude Code session.\n\nOnce configured, restart Claude Code. Your responses will be spoken aloud automatically, and you can use the speak skill to speak deliberately during a turn."
+    "additionalContext": "## claude-speak Plugin — Setup Required\n\nThe claude-speak plugin is installed but not fully configured:\n${ISSUES}\n\nIMPORTANT: Do NOT ask the user for their API key. Direct them to configure it by reinstalling the plugin or setting it in their shell profile. Never handle API keys within a Claude Code session.\n\nOnce configured, restart Claude Code. Your responses will be spoken aloud automatically, and you can use the speak skill to speak deliberately during a turn."
   }
 }
 EOF

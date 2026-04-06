@@ -103,21 +103,15 @@ Then edit `~/.claude-speak.json` to customize your preferences. See the [Configu
 
 ### Step 2: Configure API Keys
 
-Create an env file that the hooks will source at runtime:
+API keys are configured during plugin installation. Claude Code prompts you for your OpenAI and/or ElevenLabs API keys and stores them securely in your system keychain. Keys are never written to disk or exposed in conversation context.
+
+If you need to reconfigure your keys, reinstall the plugin:
 
 ```bash
-mkdir -p ~/.claude-speak
-cat > ~/.claude-speak/env << 'EOF'
-export OPENAI_API_KEY=sk-your-key-here
-export ELEVENLABS_API_KEY=xi-your-key-here
-EOF
+claude plugin install claude-speak
 ```
 
-Replace with your actual API keys. You only need to include the key(s) for the provider(s) you plan to use.
-
-> **Why is this needed?** Hook scripts run as shell subprocesses outside of the plugin sandbox. They source `~/.claude-speak/env` to get API keys into their environment. This keeps your keys out of Claude's conversation context and separate from any project files.
-
-Alternatively, if your API keys are already set in your shell profile (`.zshrc`, `.bashrc`, etc.), you can skip this step.
+> **Alternative:** If you prefer, you can set `OPENAI_API_KEY` and/or `ELEVENLABS_API_KEY` in your shell profile (`.zshrc`, `.bashrc`, etc.) instead of using the keychain. The plugin checks both sources.
 
 ### Step 3: Restart Claude Code
 
@@ -222,7 +216,7 @@ claude-speak operates in two modes that work together:
 When Claude finishes a turn, the plugin's `Stop` hook fires automatically:
 
 1. Claude Code invokes the `Stop` hook, passing the session context as JSON on stdin
-2. The hook sources `~/.claude-speak/env` to get API keys
+2. API keys are loaded from the system keychain (or environment variables)
 3. The CLI extracts the `last_assistant_message` from the JSON
 4. The sanitizer strips all markdown formatting into clean natural text
 5. The sanitized text is sent to the active TTS provider's API
@@ -269,10 +263,7 @@ claude-speak supports both OpenAI and ElevenLabs TTS providers. Both can be full
 
 ### Setting Up ElevenLabs
 
-1. Add your ElevenLabs API key to `~/.claude-speak/env`:
-   ```bash
-   echo 'export ELEVENLABS_API_KEY=xi-your-key-here' >> ~/.claude-speak/env
-   ```
+1. Ensure your ElevenLabs API key is configured. If you didn't set it during plugin installation, reinstall the plugin (`claude plugin install claude-speak`) or set `ELEVENLABS_API_KEY` in your shell profile.
 
 2. Switch to ElevenLabs:
    ```
@@ -364,9 +355,6 @@ Errors are also logged to the log file (default: `~/.claude-speak/logs/voice.log
 # Verify config exists and is valid
 cat ~/.claude-speak.json
 
-# Verify API keys are set
-cat ~/.claude-speak/env
-
 # Check the error log
 cat ~/.claude-speak/logs/voice.log
 
@@ -374,7 +362,7 @@ cat ~/.claude-speak/logs/voice.log
 node "$(cat ~/.claude-speak/plugin-root)/dist/cli.js" --cmd status
 
 # Test speech directly
-source ~/.claude-speak/env && node "$(cat ~/.claude-speak/plugin-root)/dist/cli.js" --say "Hello, testing voice output."
+node "$(cat ~/.claude-speak/plugin-root)/dist/cli.js" --cmd test
 ```
 
 ## Architecture
@@ -448,7 +436,7 @@ Hook fires (Stop/Notification)
 ### No audio plays
 
 1. Check that `~/.claude-speak.json` exists and is valid JSON
-2. Check that your API key is set in `~/.claude-speak/env` (or in your shell environment)
+2. Check that your API key is configured (reinstall plugin or check shell environment)
 3. Run `/speak status` to verify the plugin sees your config
 4. Run `/speak test` to test the full pipeline
 5. Run the [debug checks](#common-debug-checks) above
@@ -472,13 +460,12 @@ Each turn's audio plays independently. If Claude is responding quickly across mu
 The hooks can't find your API key. Ensure one of these is true for your active provider:
 
 **OpenAI:**
-- `~/.claude-speak/env` contains `export OPENAI_API_KEY=sk-...`
-- `OPENAI_API_KEY` is set in your shell profile
-- `CLAUDE_PLUGIN_OPTION_OPENAI_API_KEY` is set (via plugin installation)
+- API key configured via plugin installation (stored in system keychain)
+- Or `OPENAI_API_KEY` set in your shell profile
 
 **ElevenLabs:**
-- `~/.claude-speak/env` contains `export ELEVENLABS_API_KEY=xi-...`
-- `ELEVENLABS_API_KEY` is set in your shell profile
+- API key configured via plugin installation (stored in system keychain)
+- Or `ELEVENLABS_API_KEY` set in your shell profile
 
 ### "No voice configured for ElevenLabs"
 
