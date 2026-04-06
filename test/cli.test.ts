@@ -1,35 +1,52 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { run, isIdleNotification } from '../src/cli.js';
 import * as config from '../src/config.js';
+import * as session from '../src/session.js';
 import * as extractor from '../src/extractor.js';
 import * as sanitizer from '../src/sanitizer.js';
 import * as lock from '../src/lock.js';
 import * as player from '../src/player.js';
 import * as error from '../src/error.js';
+import * as subcommands from '../src/subcommands.js';
 
 vi.mock('../src/config.js');
+vi.mock('../src/session.js');
 vi.mock('../src/extractor.js');
 vi.mock('../src/sanitizer.js');
 vi.mock('../src/lock.js');
 vi.mock('../src/player.js');
 vi.mock('../src/error.js');
+vi.mock('../src/subcommands.js');
 
-// Mock the TTS provider
+// Mock the TTS provider factory
 const mockSynthesize = vi.fn();
-vi.mock('../src/tts/openai.js', () => ({
-  OpenAITTSProvider: class {
-    synthesize = mockSynthesize;
-  },
+vi.mock('../src/tts/factory.js', () => ({
+  createProvider: () => ({ synthesize: mockSynthesize }),
 }));
 
 function makeConfig(overrides: Partial<config.VoiceConfig> = {}): config.VoiceConfig {
   return {
     enabled: true,
-    provider: 'openai',
-    model: 'gpt-4o-mini-tts-2025-12-15',
-    voice: 'ash',
-    instructions: '',
-    apiKey: 'sk-test',
+    activeProvider: 'openai',
+    providers: {
+      openai: {
+        model: 'gpt-4o-mini-tts-2025-12-15',
+        voice: 'ash',
+        speed: 1.0,
+      },
+      elevenlabs: {
+        model: 'eleven_multilingual_v2',
+        voice: '',
+        speed: 1.0,
+        stability: 0.5,
+        similarityBoost: 0.75,
+        style: 0.0,
+      },
+    },
+    apiKeys: {
+      openai: 'sk-test',
+      elevenlabs: null,
+    },
     hooks: { stop: true, notification: true },
     playback: { command: 'afplay' },
     cooldown: 15,
@@ -42,6 +59,7 @@ function makeConfig(overrides: Partial<config.VoiceConfig> = {}): config.VoiceCo
 describe('CLI run', () => {
   beforeEach(() => {
     vi.mocked(config.loadConfig).mockReturnValue(makeConfig());
+    vi.mocked(session.loadSession).mockReturnValue({ muted: false });
     vi.mocked(sanitizer.sanitize).mockImplementation((t) => t);
     vi.mocked(lock.isLocked).mockReturnValue(false);
     vi.mocked(lock.writeLock).mockReturnValue(undefined);
@@ -58,6 +76,40 @@ describe('CLI run', () => {
     vi.mocked(config.loadConfig).mockReturnValue(makeConfig({ enabled: false }));
     await run(['--trigger', 'stop'], '');
     expect(mockSynthesize).not.toHaveBeenCalled();
+  });
+
+  it('exits silently when muted (--say)', async () => {
+    vi.mocked(session.loadSession).mockReturnValue({ muted: true });
+    await run(['--say', 'Hello world'], '');
+    expect(mockSynthesize).not.toHaveBeenCalled();
+  });
+
+  it('exits silently when muted (--trigger)', async () => {
+    vi.mocked(session.loadSession).mockReturnValue({ muted: true });
+    await run(['--trigger', 'stop'], '{}');
+    expect(mockSynthesize).not.toHaveBeenCalled();
+  });
+
+  it('dispatches --cmd to subcommand handler', async () => {
+    vi.mocked(subcommands.dispatch).mockResolvedValue({
+      message: 'Voice output muted.',
+      speak: false,
+    });
+
+    await run(['--cmd', 'mute'], '');
+
+    expect(subcommands.dispatch).toHaveBeenCalledWith('mute', []);
+  });
+
+  it('dispatches --cmd with arguments', async () => {
+    vi.mocked(subcommands.dispatch).mockResolvedValue({
+      message: 'Speed set to 1.5.',
+      speak: false,
+    });
+
+    await run(['--cmd', 'speed', '1.5'], '');
+
+    expect(subcommands.dispatch).toHaveBeenCalledWith('speed', ['1.5']);
   });
 
   it('processes --say argument through the pipeline', async () => {
@@ -117,8 +169,10 @@ describe('CLI run', () => {
     );
   });
 
-  it('exits when no API key is configured', async () => {
-    vi.mocked(config.loadConfig).mockReturnValue(makeConfig({ apiKey: null }));
+  it('exits when no API key for active provider', async () => {
+    vi.mocked(config.loadConfig).mockReturnValue(makeConfig({
+      apiKeys: { openai: null, elevenlabs: null },
+    }));
 
     await run(['--say', 'Hello'], '');
 
@@ -148,6 +202,18 @@ describe('CLI run', () => {
     await run(['--trigger', 'stop'], '{}');
 
     expect(mockSynthesize).toHaveBeenCalled();
+  });
+
+  it('allows --cmd through when muted so user can unmute', async () => {
+    vi.mocked(session.loadSession).mockReturnValue({ muted: true });
+    vi.mocked(subcommands.dispatch).mockResolvedValue({
+      message: 'Voice output unmuted.',
+      speak: true,
+    });
+
+    await run(['--cmd', 'unmute'], '');
+
+    expect(subcommands.dispatch).toHaveBeenCalledWith('unmute', []);
   });
 });
 

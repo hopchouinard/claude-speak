@@ -1,10 +1,12 @@
-import { loadConfig } from './config.js';
+import { loadConfig, type VoiceConfig } from './config.js';
+import { loadSession } from './session.js';
 import { extractMessage } from './extractor.js';
 import { sanitize } from './sanitizer.js';
-import { OpenAITTSProvider } from './tts/openai.js';
+import { createProvider } from './tts/factory.js';
 import { playAudio } from './player.js';
 import { writeLock, isLocked } from './lock.js';
 import { handleError } from './error.js';
+import { dispatch } from './subcommands.js';
 import * as path from 'node:path';
 
 const DEBUG = process.env.CLAUDE_SPEAK_DEBUG === '1';
@@ -12,12 +14,63 @@ function debug(msg: string): void {
   if (DEBUG) process.stderr.write(`[claude-speak] ${msg}\n`);
 }
 
+async function speakText(text: string, config: VoiceConfig): Promise<void> {
+  const providerConfig = config.providers[config.activeProvider];
+  const apiKey = config.apiKeys[config.activeProvider as keyof typeof config.apiKeys];
+
+  if (!apiKey) {
+    handleError(
+      new Error(`No API key for ${config.activeProvider}. Set the appropriate environment variable.`),
+      config.logFile,
+    );
+    return;
+  }
+
+  const sanitized = sanitize(text);
+  if (!sanitized) return;
+
+  try {
+    const provider = createProvider(config.activeProvider, config.apiKeys);
+    const audio = await provider.synthesize(sanitized, {
+      voice: providerConfig?.voice ?? 'ash',
+      model: providerConfig?.model ?? 'gpt-4o-mini-tts-2025-12-15',
+      instructions: providerConfig?.instructions,
+      speed: providerConfig?.speed,
+      voiceId: providerConfig?.voiceId,
+      stability: providerConfig?.stability,
+      similarityBoost: providerConfig?.similarityBoost,
+      style: providerConfig?.style,
+    });
+
+    playAudio(audio, config.playback.command);
+  } catch (err) {
+    debug(`TTS ERROR: ${err instanceof Error ? err.message : String(err)}`);
+    handleError(err, config.logFile);
+  }
+}
+
 export async function run(args: string[], stdin: string): Promise<void> {
   const config = loadConfig();
-  debug(`enabled=${config.enabled} apiKey=${config.apiKey ? 'set' : 'null'} args=${JSON.stringify(args)}`);
+  debug(`enabled=${config.enabled} activeProvider=${config.activeProvider} args=${JSON.stringify(args)}`);
   debug(`stdin length=${stdin.length} stdin FULL=${JSON.stringify(stdin)}`);
 
   if (!config.enabled) { debug('EXIT: disabled'); return; }
+
+  const session = loadSession();
+
+  // Check for --cmd routing first (must work even when muted, so user can unmute)
+  const cmdIndex = args.indexOf('--cmd');
+  if (cmdIndex !== -1 && args[cmdIndex + 1]) {
+    const subCmd = args[cmdIndex + 1];
+    const subArgs = args.slice(cmdIndex + 2);
+    const result = await dispatch(subCmd, subArgs);
+    if (result.message) process.stdout.write(result.message + '\n');
+    if (result.speak && result.message) await speakText(result.message, config);
+    return;
+  }
+
+  // Mute check for non-cmd paths
+  if (session.muted) { debug('EXIT: muted'); return; }
 
   const sayIndex = args.indexOf('--say');
   const triggerIndex = args.indexOf('--trigger');
@@ -26,7 +79,7 @@ export async function run(args: string[], stdin: string): Promise<void> {
   let isActiveVoice = false;
 
   if (sayIndex !== -1 && args[sayIndex + 1]) {
-    // Active voice mode — write lock immediately so the Stop hook sees it
+    // Active voice mode: write lock immediately so the Stop hook sees it
     writeLock(getLockPath());
     text = args[sayIndex + 1];
     isActiveVoice = true;
@@ -46,7 +99,6 @@ export async function run(args: string[], stdin: string): Promise<void> {
     debug(`extracted text=${text ? text.slice(0, 100) : 'null'}`);
 
     // For notification triggers, filter out idle system notifications
-    // (e.g. "Claude is waiting for your input") that aren't worth speaking.
     if (triggerType === 'notification' && text && isIdleNotification(text)) {
       debug('EXIT: filtered idle notification');
       return;
@@ -58,8 +110,13 @@ export async function run(args: string[], stdin: string): Promise<void> {
 
   if (!text) { debug('EXIT: no text'); return; }
 
-  if (!config.apiKey) {
-    handleError(new Error('No API key configured. Set OPENAI_API_KEY or configure via plugin settings.'), config.logFile);
+  // Check API key for active provider
+  const apiKey = config.apiKeys[config.activeProvider as keyof typeof config.apiKeys];
+  if (!apiKey) {
+    handleError(
+      new Error(`No API key for ${config.activeProvider}. Set the appropriate environment variable.`),
+      config.logFile,
+    );
     return;
   }
 
@@ -69,15 +126,19 @@ export async function run(args: string[], stdin: string): Promise<void> {
 
   // TTS
   try {
-    const provider = new OpenAITTSProvider(config.apiKey);
+    const providerConfig = config.providers[config.activeProvider];
+    const provider = createProvider(config.activeProvider, config.apiKeys);
     const audio = await provider.synthesize(sanitized, {
-      voice: config.voice,
-      model: config.model,
-      instructions: config.instructions || undefined,
-      speed: config.speed,
+      voice: providerConfig?.voice ?? 'ash',
+      model: providerConfig?.model ?? 'gpt-4o-mini-tts-2025-12-15',
+      instructions: providerConfig?.instructions,
+      speed: providerConfig?.speed,
+      voiceId: providerConfig?.voiceId,
+      stability: providerConfig?.stability,
+      similarityBoost: providerConfig?.similarityBoost,
+      style: providerConfig?.style,
     });
 
-    // Play
     playAudio(audio, config.playback.command);
 
     // Refresh lock after playback starts so the Stop hook sees a fresh timestamp
@@ -105,8 +166,6 @@ export function isIdleNotification(text: string): boolean {
 
 function getLockPath(): string {
   // Always use ~/.claude-speak/ for the lock file, regardless of CLAUDE_PLUGIN_DATA.
-  // This ensures the active voice (invoked via Bash tool) and passive voice (invoked
-  // via hook with CLAUDE_PLUGIN_DATA set) read/write the same file.
   return path.join(process.env.HOME || '', '.claude-speak', 'voice.lock');
 }
 
