@@ -1009,14 +1009,14 @@ var require_url_state_machine = __commonJS({
       return url.replace(/\u0009|\u000A|\u000D/g, "");
     }
     function shortenPath(url) {
-      const path6 = url.path;
-      if (path6.length === 0) {
+      const path8 = url.path;
+      if (path8.length === 0) {
         return;
       }
-      if (url.scheme === "file" && path6.length === 1 && isNormalizedWindowsDriveLetter(path6[0])) {
+      if (url.scheme === "file" && path8.length === 1 && isNormalizedWindowsDriveLetter(path8[0])) {
         return;
       }
-      path6.pop();
+      path8.pop();
     }
     function includesCredentials(url) {
       return url.username !== "" || url.password !== "";
@@ -3040,12 +3040,12 @@ var require_lib2 = __commonJS({
       const dest = new URL$1(destination).protocol;
       return orig === dest;
     };
-    function fetch2(url, opts) {
-      if (!fetch2.Promise) {
+    function fetch3(url, opts) {
+      if (!fetch3.Promise) {
         throw new Error("native promise missing, set fetch.Promise to your favorite alternative");
       }
-      Body.Promise = fetch2.Promise;
-      return new fetch2.Promise(function(resolve, reject) {
+      Body.Promise = fetch3.Promise;
+      return new fetch3.Promise(function(resolve, reject) {
         const request = new Request3(url, opts);
         const options = getNodeRequestOptions(request);
         const send = (options.protocol === "https:" ? https : http).request;
@@ -3116,7 +3116,7 @@ var require_lib2 = __commonJS({
         req.on("response", function(res) {
           clearTimeout(reqTimeout);
           const headers = createHeadersLenient(res.headers);
-          if (fetch2.isRedirect(res.statusCode)) {
+          if (fetch3.isRedirect(res.statusCode)) {
             const location = headers.get("Location");
             let locationURL = null;
             try {
@@ -3178,7 +3178,7 @@ var require_lib2 = __commonJS({
                   requestOpts.body = void 0;
                   requestOpts.headers.delete("content-length");
                 }
-                resolve(fetch2(new Request3(locationURL, requestOpts)));
+                resolve(fetch3(new Request3(locationURL, requestOpts)));
                 finalize();
                 return;
             }
@@ -3270,11 +3270,11 @@ var require_lib2 = __commonJS({
         stream.end();
       }
     }
-    fetch2.isRedirect = function(code) {
+    fetch3.isRedirect = function(code) {
       return code === 301 || code === 302 || code === 303 || code === 307 || code === 308;
     };
-    fetch2.Promise = global.Promise;
-    module.exports = exports = fetch2;
+    fetch3.Promise = global.Promise;
+    module.exports = exports = fetch3;
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.default = exports;
     exports.Headers = Headers3;
@@ -6595,16 +6595,16 @@ __export(fileFromPath_exports, {
   fileFromPathSync: () => fileFromPathSync,
   isFile: () => isFile
 });
-import { statSync, createReadStream, promises as fs2 } from "fs";
+import { statSync, createReadStream, promises as fs3 } from "fs";
 import { basename } from "path";
-function createFileFromPath(path6, { mtimeMs, size }, filenameOrOptions, options = {}) {
+function createFileFromPath(path8, { mtimeMs, size }, filenameOrOptions, options = {}) {
   let filename;
   if (isPlainObject_default2(filenameOrOptions)) {
     [options, filename] = [filenameOrOptions, void 0];
   } else {
     filename = filenameOrOptions;
   }
-  const file = new FileFromPath({ path: path6, size, lastModified: mtimeMs });
+  const file = new FileFromPath({ path: path8, size, lastModified: mtimeMs });
   if (!filename) {
     filename = file.name;
   }
@@ -6613,13 +6613,13 @@ function createFileFromPath(path6, { mtimeMs, size }, filenameOrOptions, options
     lastModified: file.lastModified
   });
 }
-function fileFromPathSync(path6, filenameOrOptions, options = {}) {
-  const stats = statSync(path6);
-  return createFileFromPath(path6, stats, filenameOrOptions, options);
+function fileFromPathSync(path8, filenameOrOptions, options = {}) {
+  const stats = statSync(path8);
+  return createFileFromPath(path8, stats, filenameOrOptions, options);
 }
-async function fileFromPath2(path6, filenameOrOptions, options) {
-  const stats = await fs2.stat(path6);
-  return createFileFromPath(path6, stats, filenameOrOptions, options);
+async function fileFromPath2(path8, filenameOrOptions, options) {
+  const stats = await fs3.stat(path8);
+  return createFileFromPath(path8, stats, filenameOrOptions, options);
 }
 var import_node_domexception, __classPrivateFieldSet4, __classPrivateFieldGet5, _FileFromPath_path, _FileFromPath_start, MESSAGE, FileFromPath;
 var init_fileFromPath = __esm({
@@ -6659,7 +6659,7 @@ var init_fileFromPath = __esm({
         });
       }
       async *stream() {
-        const { mtimeMs } = await fs2.stat(__classPrivateFieldGet5(this, _FileFromPath_path, "f"));
+        const { mtimeMs } = await fs3.stat(__classPrivateFieldGet5(this, _FileFromPath_path, "f"));
         if (mtimeMs > this.lastModified) {
           throw new import_node_domexception.default(MESSAGE, "NotReadableError");
         }
@@ -6681,20 +6681,52 @@ var init_fileFromPath = __esm({
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-function getDefaults() {
+
+// src/migration.ts
+function isOldFormat(config) {
+  return typeof config.provider === "string" && !("providers" in config);
+}
+function migrateConfig(old) {
+  const providerName = old.provider || "openai";
+  const providerConfig = {
+    model: old.model ?? "gpt-4o-mini-tts-2025-12-15",
+    voice: old.voice ?? "ash",
+    speed: old.speed ?? 1
+  };
+  if (old.voiceId !== void 0) providerConfig.voiceId = old.voiceId;
+  if (old.instructions !== void 0) providerConfig.instructions = old.instructions;
+  if (old.stability !== void 0) providerConfig.stability = old.stability;
+  if (old.similarityBoost !== void 0) providerConfig.similarityBoost = old.similarityBoost;
+  if (old.style !== void 0) providerConfig.style = old.style;
   return {
-    provider: "openai",
-    model: "gpt-4o-mini-tts-2025-12-15",
-    voice: "ash",
-    instructions: "",
-    hooks: { stop: true, notification: true },
-    playback: { command: detectPlaybackCommand() },
-    speed: 1,
-    cooldown: 15,
-    timeout: 30,
-    logFile: path.join(os.homedir(), ".claude-speak", "logs", "voice.log")
+    activeProvider: providerName,
+    providers: {
+      [providerName]: providerConfig
+    },
+    hooks: old.hooks ?? { stop: true, notification: true },
+    playback: old.playback ?? { command: process.platform === "darwin" ? "afplay" : "paplay" },
+    cooldown: old.cooldown ?? 15,
+    timeout: old.timeout ?? 30,
+    logFile: old.logFile ?? "~/.claude-speak/logs/voice.log"
   };
 }
+
+// src/config.ts
+var PROVIDER_DEFAULTS = {
+  openai: {
+    model: "gpt-4o-mini-tts-2025-12-15",
+    voice: "ash",
+    speed: 1
+  },
+  elevenlabs: {
+    model: "eleven_multilingual_v2",
+    voice: "",
+    speed: 1,
+    stability: 0.5,
+    similarityBoost: 0.75,
+    style: 0
+  }
+};
 function expandTilde(filePath) {
   if (filePath.startsWith("~/")) {
     return path.join(os.homedir(), filePath.slice(2));
@@ -6704,17 +6736,41 @@ function expandTilde(filePath) {
 function detectPlaybackCommand() {
   return process.platform === "darwin" ? "afplay" : "paplay";
 }
+function getSharedDefaults() {
+  return {
+    hooks: { stop: true, notification: true },
+    playback: { command: detectPlaybackCommand() },
+    cooldown: 15,
+    timeout: 30,
+    logFile: path.join(os.homedir(), ".claude-speak", "logs", "voice.log")
+  };
+}
+function loadApiKeys() {
+  return {
+    openai: process.env.CLAUDE_PLUGIN_OPTION_OPENAI_API_KEY ?? process.env.OPENAI_API_KEY ?? null,
+    elevenlabs: process.env.CLAUDE_PLUGIN_OPTION_ELEVENLABS_API_KEY ?? process.env.ELEVENLABS_API_KEY ?? null
+  };
+}
+function getConfigPath() {
+  return path.join(os.homedir(), ".claude-speak.json");
+}
 function loadConfig() {
-  const DEFAULTS = getDefaults();
-  const configPath = path.join(os.homedir(), ".claude-speak.json");
+  const shared = getSharedDefaults();
+  const apiKeys = loadApiKeys();
+  const configPath = getConfigPath();
   const envEnabled = process.env.CLAUDE_SPEAK_ENABLED;
-  const apiKey = process.env.CLAUDE_PLUGIN_OPTION_OPENAI_API_KEY ?? process.env.OPENAI_API_KEY ?? null;
+  const defaultConfig = {
+    enabled: false,
+    activeProvider: "openai",
+    providers: {
+      openai: { ...PROVIDER_DEFAULTS.openai },
+      elevenlabs: { ...PROVIDER_DEFAULTS.elevenlabs }
+    },
+    apiKeys,
+    ...shared
+  };
   if (!fs.existsSync(configPath)) {
-    return {
-      ...DEFAULTS,
-      enabled: false,
-      apiKey
-    };
+    return defaultConfig;
   }
   let fileConfig;
   try {
@@ -6722,32 +6778,83 @@ function loadConfig() {
     fileConfig = JSON.parse(raw);
   } catch {
     return {
-      ...DEFAULTS,
-      enabled: false,
-      apiKey,
+      ...defaultConfig,
       error: "malformed-config"
     };
   }
-  const merged = {
-    provider: fileConfig.provider ?? DEFAULTS.provider,
-    model: fileConfig.model ?? DEFAULTS.model,
-    voice: fileConfig.voice ?? DEFAULTS.voice,
-    instructions: fileConfig.instructions ?? DEFAULTS.instructions,
+  if (isOldFormat(fileConfig)) {
+    const migrated = migrateConfig(fileConfig);
+    try {
+      fs.writeFileSync(configPath, JSON.stringify(migrated, null, 2), "utf-8");
+    } catch {
+    }
+    fileConfig = migrated;
+  }
+  const activeProvider = fileConfig.activeProvider ?? "openai";
+  const rawProviders = fileConfig.providers ?? {};
+  const providers = {};
+  for (const [name, rawConfig] of Object.entries(rawProviders)) {
+    const defaults2 = PROVIDER_DEFAULTS[name] ?? { model: "", voice: "", speed: 1 };
+    providers[name] = { ...defaults2, ...rawConfig };
+  }
+  if (!providers[activeProvider]) {
+    const defaults2 = PROVIDER_DEFAULTS[activeProvider] ?? { model: "", voice: "", speed: 1 };
+    providers[activeProvider] = { ...defaults2 };
+  }
+  const enabled = envEnabled !== void 0 ? envEnabled === "true" : true;
+  return {
+    enabled,
+    activeProvider,
+    providers,
+    apiKeys,
     hooks: {
-      stop: fileConfig.hooks?.stop ?? DEFAULTS.hooks.stop,
-      notification: fileConfig.hooks?.notification ?? DEFAULTS.hooks.notification
+      stop: fileConfig.hooks?.stop ?? shared.hooks.stop,
+      notification: fileConfig.hooks?.notification ?? shared.hooks.notification
     },
     playback: {
-      command: fileConfig.playback?.command ?? DEFAULTS.playback.command
+      command: fileConfig.playback?.command ?? shared.playback.command
     },
-    speed: fileConfig.speed ?? DEFAULTS.speed,
-    cooldown: fileConfig.cooldown ?? DEFAULTS.cooldown,
-    timeout: fileConfig.timeout ?? DEFAULTS.timeout,
-    logFile: expandTilde(fileConfig.logFile ?? DEFAULTS.logFile),
-    enabled: envEnabled !== void 0 ? envEnabled === "true" : true,
-    apiKey
+    cooldown: fileConfig.cooldown ?? shared.cooldown,
+    timeout: fileConfig.timeout ?? shared.timeout,
+    logFile: expandTilde(fileConfig.logFile ?? shared.logFile)
   };
-  return merged;
+}
+
+// src/session.ts
+import * as fs2 from "node:fs";
+import * as path2 from "node:path";
+import * as os2 from "node:os";
+var SESSION_DEFAULTS = {
+  muted: false
+};
+function getSessionPath() {
+  return path2.join(os2.homedir(), ".claude-speak", "session.json");
+}
+function loadSession() {
+  const sessionPath = getSessionPath();
+  if (!fs2.existsSync(sessionPath)) {
+    return { ...SESSION_DEFAULTS };
+  }
+  try {
+    const raw = fs2.readFileSync(sessionPath, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (typeof parsed.muted !== "boolean") {
+      fs2.unlinkSync(sessionPath);
+      return { ...SESSION_DEFAULTS };
+    }
+    return { muted: parsed.muted };
+  } catch {
+    try {
+      fs2.unlinkSync(sessionPath);
+    } catch {
+    }
+    return { ...SESSION_DEFAULTS };
+  }
+}
+function writeSession(state) {
+  const sessionPath = getSessionPath();
+  fs2.mkdirSync(path2.dirname(sessionPath), { recursive: true });
+  fs2.writeFileSync(sessionPath, JSON.stringify(state, null, 2), "utf-8");
 }
 
 // src/extractor.ts
@@ -7191,7 +7298,7 @@ var VERSION = "4.104.0";
 // node_modules/openai/_shims/registry.mjs
 var auto = false;
 var kind = void 0;
-var fetch = void 0;
+var fetch2 = void 0;
 var Request = void 0;
 var Response = void 0;
 var Headers = void 0;
@@ -7212,7 +7319,7 @@ function setShims(shims, options = { auto: false }) {
   }
   auto = options.auto;
   kind = shims.kind;
-  fetch = shims.fetch;
+  fetch2 = shims.fetch;
   Request = shims.Request;
   Response = shims.Response;
   Headers = shims.Headers;
@@ -7564,13 +7671,13 @@ var MultipartBody = class {
 // node_modules/openai/_shims/node-runtime.mjs
 import { ReadableStream as ReadableStream3 } from "node:stream/web";
 var fileFromPathWarned = false;
-async function fileFromPath3(path6, ...args) {
+async function fileFromPath3(path8, ...args) {
   const { fileFromPath: _fileFromPath } = await Promise.resolve().then(() => (init_fileFromPath(), fileFromPath_exports));
   if (!fileFromPathWarned) {
-    console.warn(`fileFromPath is deprecated; use fs.createReadStream(${JSON.stringify(path6)}) instead`);
+    console.warn(`fileFromPath is deprecated; use fs.createReadStream(${JSON.stringify(path8)}) instead`);
     fileFromPathWarned = true;
   }
-  return await _fileFromPath(path6, ...args);
+  return await _fileFromPath(path8, ...args);
 }
 var defaultHttpAgent = new import_agentkeepalive.default({ keepAlive: true, timeout: 5 * 60 * 1e3 });
 var defaultHttpsAgent = new import_agentkeepalive.default.HttpsAgent({ keepAlive: true, timeout: 5 * 60 * 1e3 });
@@ -8324,7 +8431,7 @@ var APIClient = class {
     this.maxRetries = validatePositiveInteger("maxRetries", maxRetries);
     this.timeout = validatePositiveInteger("timeout", timeout);
     this.httpAgent = httpAgent;
-    this.fetch = overriddenFetch ?? fetch;
+    this.fetch = overriddenFetch ?? fetch2;
   }
   authHeaders(opts) {
     return {};
@@ -8354,29 +8461,29 @@ var APIClient = class {
   defaultIdempotencyKey() {
     return `stainless-node-retry-${uuid4()}`;
   }
-  get(path6, opts) {
-    return this.methodRequest("get", path6, opts);
+  get(path8, opts) {
+    return this.methodRequest("get", path8, opts);
   }
-  post(path6, opts) {
-    return this.methodRequest("post", path6, opts);
+  post(path8, opts) {
+    return this.methodRequest("post", path8, opts);
   }
-  patch(path6, opts) {
-    return this.methodRequest("patch", path6, opts);
+  patch(path8, opts) {
+    return this.methodRequest("patch", path8, opts);
   }
-  put(path6, opts) {
-    return this.methodRequest("put", path6, opts);
+  put(path8, opts) {
+    return this.methodRequest("put", path8, opts);
   }
-  delete(path6, opts) {
-    return this.methodRequest("delete", path6, opts);
+  delete(path8, opts) {
+    return this.methodRequest("delete", path8, opts);
   }
-  methodRequest(method, path6, opts) {
+  methodRequest(method, path8, opts) {
     return this.request(Promise.resolve(opts).then(async (opts2) => {
       const body = opts2 && isBlobLike(opts2?.body) ? new DataView(await opts2.body.arrayBuffer()) : opts2?.body instanceof DataView ? opts2.body : opts2?.body instanceof ArrayBuffer ? new DataView(opts2.body) : opts2 && ArrayBuffer.isView(opts2?.body) ? new DataView(opts2.body.buffer) : opts2?.body;
-      return { method, path: path6, ...opts2, body };
+      return { method, path: path8, ...opts2, body };
     }));
   }
-  getAPIList(path6, Page2, opts) {
-    return this.requestAPIList(Page2, { method: "get", path: path6, ...opts });
+  getAPIList(path8, Page2, opts) {
+    return this.requestAPIList(Page2, { method: "get", path: path8, ...opts });
   }
   calculateContentLength(body) {
     if (typeof body === "string") {
@@ -8395,10 +8502,10 @@ var APIClient = class {
   }
   buildRequest(inputOptions, { retryCount = 0 } = {}) {
     const options = { ...inputOptions };
-    const { method, path: path6, query, headers = {} } = options;
+    const { method, path: path8, query, headers = {} } = options;
     const body = ArrayBuffer.isView(options.body) || options.__binaryRequest && typeof options.body === "string" ? options.body : isMultipartBody(options.body) ? options.body.body : options.body ? JSON.stringify(options.body, null, 2) : null;
     const contentLength = this.calculateContentLength(body);
-    const url = this.buildURL(path6, query);
+    const url = this.buildURL(path8, query);
     if ("timeout" in options)
       validatePositiveInteger("timeout", options.timeout);
     options.timeout = options.timeout ?? this.timeout;
@@ -8514,8 +8621,8 @@ var APIClient = class {
     const request = this.makeRequest(options, null);
     return new PagePromise(this, request, Page2);
   }
-  buildURL(path6, query) {
-    const url = isAbsoluteURL(path6) ? new URL(path6) : new URL(this.baseURL + (this.baseURL.endsWith("/") && path6.startsWith("/") ? path6.slice(1) : path6));
+  buildURL(path8, query) {
+    const url = isAbsoluteURL(path8) ? new URL(path8) : new URL(this.baseURL + (this.baseURL.endsWith("/") && path8.startsWith("/") ? path8.slice(1) : path8));
     const defaultQuery = this.defaultQuery();
     if (!isEmptyObj(defaultQuery)) {
       query = { ...defaultQuery, ...query };
@@ -13433,23 +13540,81 @@ var OpenAITTSProvider = class {
   }
 };
 
+// src/tts/elevenlabs.ts
+var ElevenLabsTTSProvider = class {
+  apiKey;
+  constructor(apiKey) {
+    this.apiKey = apiKey;
+  }
+  async synthesize(text, options) {
+    const voiceId = options.voiceId || options.voice;
+    const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
+    const voiceSettings = {};
+    if (options.speed != null) voiceSettings.speed = options.speed;
+    if (options.stability != null) voiceSettings.stability = options.stability;
+    if (options.similarityBoost != null) voiceSettings.similarity_boost = options.similarityBoost;
+    if (options.style != null) voiceSettings.style = options.style;
+    const body = {
+      text,
+      model_id: options.model
+    };
+    if (Object.keys(voiceSettings).length > 0) {
+      body.voice_settings = voiceSettings;
+    }
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "xi-api-key": this.apiKey,
+        "Content-Type": "application/json",
+        "Accept": "audio/mpeg"
+      },
+      body: JSON.stringify(body)
+    });
+    if (!response.ok) {
+      throw new Error(`ElevenLabs API error: ${response.status} ${response.statusText}`);
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }
+};
+
+// src/tts/factory.ts
+function createProvider(providerName, apiKeys) {
+  switch (providerName) {
+    case "openai": {
+      if (!apiKeys.openai) {
+        throw new Error("OpenAI API key not found. Set OPENAI_API_KEY or configure via plugin settings.");
+      }
+      return new OpenAITTSProvider(apiKeys.openai);
+    }
+    case "elevenlabs": {
+      if (!apiKeys.elevenlabs) {
+        throw new Error("ElevenLabs API key not found. Add `export ELEVENLABS_API_KEY=xi-...` to ~/.claude-speak/env");
+      }
+      return new ElevenLabsTTSProvider(apiKeys.elevenlabs);
+    }
+    default:
+      throw new Error(`Unknown TTS provider: ${providerName}. Supported providers: openai, elevenlabs`);
+  }
+}
+
 // src/player.ts
 import { spawn } from "node:child_process";
-import * as fs3 from "node:fs";
-import * as os2 from "node:os";
-import * as path2 from "node:path";
+import * as fs4 from "node:fs";
+import * as os3 from "node:os";
+import * as path3 from "node:path";
 function playAudio(audio, command) {
-  const tmpDir = fs3.mkdtempSync(path2.join(os2.tmpdir(), "claude-speak-"));
-  const filePath = path2.join(tmpDir, "output.mp3");
-  fs3.writeFileSync(filePath, audio);
+  const tmpDir = fs4.mkdtempSync(path3.join(os3.tmpdir(), "claude-speak-"));
+  const filePath = path3.join(tmpDir, "output.mp3");
+  fs4.writeFileSync(filePath, audio);
   const child = spawn(command, [filePath], {
     detached: true,
     stdio: "ignore"
   });
   child.on("exit", () => {
     try {
-      fs3.unlinkSync(filePath);
-      fs3.rmdirSync(tmpDir);
+      fs4.unlinkSync(filePath);
+      fs4.rmdirSync(tmpDir);
     } catch {
     }
   });
@@ -13457,16 +13622,16 @@ function playAudio(audio, command) {
 }
 
 // src/lock.ts
-import * as fs4 from "node:fs";
-import * as path3 from "node:path";
+import * as fs5 from "node:fs";
+import * as path4 from "node:path";
 function writeLock(lockPath) {
-  fs4.mkdirSync(path3.dirname(lockPath), { recursive: true });
-  fs4.writeFileSync(lockPath, String(Date.now()));
+  fs5.mkdirSync(path4.dirname(lockPath), { recursive: true });
+  fs5.writeFileSync(lockPath, String(Date.now()));
 }
 function isLocked(lockPath, cooldownSeconds) {
-  if (!fs4.existsSync(lockPath)) return false;
+  if (!fs5.existsSync(lockPath)) return false;
   try {
-    const raw = fs4.readFileSync(lockPath, "utf-8");
+    const raw = fs5.readFileSync(lockPath, "utf-8");
     const timestamp = Number(raw);
     if (Number.isNaN(timestamp)) return false;
     const elapsed = Date.now() - timestamp;
@@ -13478,16 +13643,16 @@ function isLocked(lockPath, cooldownSeconds) {
 
 // src/error.ts
 import { spawnSync } from "node:child_process";
-import * as fs5 from "node:fs";
-import * as path4 from "node:path";
+import * as fs6 from "node:fs";
+import * as path5 from "node:path";
 function handleError(error, logFile) {
   try {
     const message = error instanceof Error ? error.message : String(error);
     const timestamp = (/* @__PURE__ */ new Date()).toISOString();
     const logEntry = `[${timestamp}] ERROR: ${message}
 `;
-    fs5.mkdirSync(path4.dirname(logFile), { recursive: true });
-    fs5.appendFileSync(logFile, logEntry);
+    fs6.mkdirSync(path5.dirname(logFile), { recursive: true });
+    fs6.appendFileSync(logFile, logEntry);
   } catch {
   }
   try {
@@ -13500,19 +13665,340 @@ function handleError(error, logFile) {
   }
 }
 
+// src/subcommands.ts
+import * as fs8 from "node:fs";
+
+// src/voice-cache.ts
+import * as fs7 from "node:fs";
+import * as path6 from "node:path";
+import * as os4 from "node:os";
+function getCachePath() {
+  return path6.join(os4.homedir(), ".claude-speak", "voices-elevenlabs.json");
+}
+function readCache() {
+  const cachePath = getCachePath();
+  if (!fs7.existsSync(cachePath)) {
+    return null;
+  }
+  try {
+    const raw = fs7.readFileSync(cachePath, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+function writeCache(voices) {
+  const cachePath = getCachePath();
+  const dir = path6.dirname(cachePath);
+  fs7.mkdirSync(dir, { recursive: true });
+  const data = {
+    fetched: (/* @__PURE__ */ new Date()).toISOString(),
+    voices
+  };
+  fs7.writeFileSync(cachePath, JSON.stringify(data, null, 2), "utf-8");
+}
+function resolveVoiceName(name, voices) {
+  const lower = name.toLowerCase();
+  const match = voices.find((v2) => v2.name.toLowerCase() === lower);
+  return match ? match.voiceId : null;
+}
+async function fetchElevenLabsVoices(apiKey) {
+  const response = await fetch("https://api.elevenlabs.io/v1/voices", {
+    headers: { "xi-api-key": apiKey }
+  });
+  if (!response.ok) {
+    throw new Error(`ElevenLabs API error: ${response.status} ${response.statusText}`);
+  }
+  const data = await response.json();
+  return data.voices.map((v2) => ({
+    voiceId: v2.voice_id,
+    name: v2.name,
+    category: v2.category
+  }));
+}
+
+// src/subcommands.ts
+var OPENAI_VOICES = [
+  "alloy",
+  "ash",
+  "ballad",
+  "cedar",
+  "coral",
+  "echo",
+  "fable",
+  "marin",
+  "nova",
+  "onyx",
+  "sage",
+  "shimmer",
+  "verse"
+];
+var SUPPORTED_PROVIDERS = ["openai", "elevenlabs"];
+var AVAILABLE_COMMANDS = ["mute", "unmute", "provider", "speed", "voice", "voices", "status", "test"];
+var ENV_VAR_MAP = {
+  openai: "OPENAI_API_KEY",
+  elevenlabs: "ELEVENLABS_API_KEY"
+};
+function updateConfigFile(updater) {
+  const configPath = getConfigPath();
+  let config = {};
+  try {
+    const raw = fs8.readFileSync(configPath, "utf-8");
+    config = JSON.parse(raw);
+  } catch {
+  }
+  updater(config);
+  fs8.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
+}
+async function handleMute() {
+  writeSession({ muted: true });
+  return { message: "Voice output muted for this session.", speak: false };
+}
+async function handleUnmute() {
+  writeSession({ muted: false });
+  return { message: "Voice output unmuted.", speak: true };
+}
+async function handleProvider(args) {
+  const name = args[0]?.toLowerCase();
+  if (!name) {
+    return { message: "Usage: provider <openai|elevenlabs>", speak: false, error: true };
+  }
+  if (!SUPPORTED_PROVIDERS.includes(name)) {
+    return {
+      message: `Unknown provider "${name}". Supported: ${SUPPORTED_PROVIDERS.join(", ")}`,
+      speak: false,
+      error: true
+    };
+  }
+  const config = loadConfig();
+  const apiKey = config.apiKeys[name];
+  if (!apiKey) {
+    const envVar = ENV_VAR_MAP[name] ?? `${name.toUpperCase()}_API_KEY`;
+    return {
+      message: `No API key for ${name}. Set ${envVar} in your environment.`,
+      speak: false,
+      error: true
+    };
+  }
+  updateConfigFile((cfg) => {
+    cfg.activeProvider = name;
+    const providers = cfg.providers ?? {};
+    if (!providers[name] && PROVIDER_DEFAULTS[name]) {
+      providers[name] = { ...PROVIDER_DEFAULTS[name] };
+    }
+    cfg.providers = providers;
+  });
+  return { message: `Switched to ${name} provider.`, speak: true };
+}
+async function handleSpeed(args) {
+  const raw = args[0];
+  if (!raw) {
+    return { message: "Usage: speed <0.25-4.0>", speak: false, error: true };
+  }
+  const value = Number(raw);
+  if (isNaN(value)) {
+    return { message: `"${raw}" is not a number. Speed must be between 0.25 and 4.0.`, speak: false, error: true };
+  }
+  if (value < 0.25 || value > 4) {
+    return { message: `Speed out of range. Must be between 0.25 and 4.0.`, speak: false, error: true };
+  }
+  const config = loadConfig();
+  const provider = config.activeProvider;
+  updateConfigFile((cfg) => {
+    const providers = cfg.providers ?? {};
+    if (!providers[provider]) {
+      providers[provider] = { ...PROVIDER_DEFAULTS[provider] ?? { model: "", voice: "", speed: 1 } };
+    }
+    providers[provider].speed = value;
+    cfg.providers = providers;
+  });
+  return { message: `Speed set to ${value} for ${provider}.`, speak: true };
+}
+async function handleVoice(args) {
+  const name = args[0];
+  if (!name) {
+    return { message: "Usage: voice <name>", speak: false, error: true };
+  }
+  const config = loadConfig();
+  const provider = config.activeProvider;
+  if (provider === "openai") {
+    if (!OPENAI_VOICES.includes(name.toLowerCase())) {
+      return {
+        message: `Unknown OpenAI voice "${name}". Available: ${OPENAI_VOICES.join(", ")}`,
+        speak: false,
+        error: true
+      };
+    }
+    updateConfigFile((cfg) => {
+      const providers = cfg.providers ?? {};
+      if (!providers.openai) {
+        providers.openai = { ...PROVIDER_DEFAULTS.openai };
+      }
+      providers.openai.voice = name.toLowerCase();
+      cfg.providers = providers;
+    });
+    return { message: `OpenAI voice set to ${name.toLowerCase()}.`, speak: true };
+  }
+  const cache = readCache();
+  const voices = cache?.voices ?? [];
+  const voiceId = resolveVoiceName(name, voices);
+  if (voiceId) {
+    updateConfigFile((cfg) => {
+      const providers = cfg.providers ?? {};
+      if (!providers.elevenlabs) {
+        providers.elevenlabs = { ...PROVIDER_DEFAULTS.elevenlabs };
+      }
+      providers.elevenlabs.voice = name;
+      providers.elevenlabs.voiceId = voiceId;
+      cfg.providers = providers;
+    });
+    return { message: `ElevenLabs voice set to ${name} (${voiceId}).`, speak: true };
+  }
+  updateConfigFile((cfg) => {
+    const providers = cfg.providers ?? {};
+    if (!providers.elevenlabs) {
+      providers.elevenlabs = { ...PROVIDER_DEFAULTS.elevenlabs };
+    }
+    providers.elevenlabs.voice = name;
+    providers.elevenlabs.voiceId = name;
+    cfg.providers = providers;
+  });
+  return { message: `ElevenLabs voice set to ID ${name} (not found in cache, using as raw ID).`, speak: true };
+}
+async function handleVoices() {
+  const config = loadConfig();
+  if (config.activeProvider === "openai") {
+    return {
+      message: `OpenAI voices: ${OPENAI_VOICES.join(", ")}`,
+      speak: false
+    };
+  }
+  const apiKey = config.apiKeys.elevenlabs;
+  if (!apiKey) {
+    return {
+      message: "No ElevenLabs API key set. Set ELEVENLABS_API_KEY in your environment.",
+      speak: false,
+      error: true
+    };
+  }
+  const voices = await fetchElevenLabsVoices(apiKey);
+  writeCache(voices);
+  const lines = voices.map((v2) => `  ${v2.name} [${v2.category}] (${v2.voiceId})`);
+  return {
+    message: `ElevenLabs voices:
+${lines.join("\n")}`,
+    speak: false
+  };
+}
+async function handleStatus() {
+  const config = loadConfig();
+  const session = loadSession();
+  const provider = config.activeProvider;
+  const providerConfig = config.providers[provider];
+  const lines = [
+    `Provider: ${provider}`,
+    `Voice: ${providerConfig?.voice ?? "(not set)"}`,
+    `Speed: ${providerConfig?.speed ?? 1}`,
+    `Muted: ${session.muted ? "yes" : "no"}`,
+    `Hooks: stop=${config.hooks.stop}, notification=${config.hooks.notification}`
+  ];
+  return { message: lines.join("\n"), speak: false };
+}
+async function handleTest() {
+  const config = loadConfig();
+  const provider = config.activeProvider;
+  const providerConfig = config.providers[provider];
+  const voice = providerConfig?.voice ?? "default";
+  const speed = providerConfig?.speed ?? 1;
+  return {
+    message: `This is a test of claude-speak using ${provider} with voice ${voice} at speed ${speed}.`,
+    speak: true
+  };
+}
+async function dispatch(cmd, args) {
+  switch (cmd) {
+    case "mute":
+      return handleMute();
+    case "unmute":
+      return handleUnmute();
+    case "provider":
+      return handleProvider(args);
+    case "speed":
+      return handleSpeed(args);
+    case "voice":
+      return handleVoice(args);
+    case "voices":
+      return handleVoices();
+    case "status":
+      return handleStatus();
+    case "test":
+      return handleTest();
+    default:
+      return {
+        message: `Unknown command "${cmd}". Available: ${AVAILABLE_COMMANDS.join(", ")}`,
+        speak: false,
+        error: true
+      };
+  }
+}
+
 // src/cli.ts
-import * as path5 from "node:path";
+import * as path7 from "node:path";
 var DEBUG = process.env.CLAUDE_SPEAK_DEBUG === "1";
 function debug2(msg) {
   if (DEBUG) process.stderr.write(`[claude-speak] ${msg}
 `);
 }
+async function speakText(text, config) {
+  const providerConfig = config.providers[config.activeProvider];
+  const apiKey = config.apiKeys[config.activeProvider];
+  if (!apiKey) {
+    handleError(
+      new Error(`No API key for ${config.activeProvider}. Set the appropriate environment variable.`),
+      config.logFile
+    );
+    return;
+  }
+  const sanitized = sanitize(text);
+  if (!sanitized) return;
+  try {
+    const provider = createProvider(config.activeProvider, config.apiKeys);
+    const audio = await provider.synthesize(sanitized, {
+      voice: providerConfig?.voice ?? "ash",
+      model: providerConfig?.model ?? "gpt-4o-mini-tts-2025-12-15",
+      instructions: providerConfig?.instructions,
+      speed: providerConfig?.speed,
+      voiceId: providerConfig?.voiceId,
+      stability: providerConfig?.stability,
+      similarityBoost: providerConfig?.similarityBoost,
+      style: providerConfig?.style
+    });
+    playAudio(audio, config.playback.command);
+  } catch (err) {
+    debug2(`TTS ERROR: ${err instanceof Error ? err.message : String(err)}`);
+    handleError(err, config.logFile);
+  }
+}
 async function run(args, stdin) {
   const config = loadConfig();
-  debug2(`enabled=${config.enabled} apiKey=${config.apiKey ? "set" : "null"} args=${JSON.stringify(args)}`);
+  debug2(`enabled=${config.enabled} activeProvider=${config.activeProvider} args=${JSON.stringify(args)}`);
   debug2(`stdin length=${stdin.length} stdin FULL=${JSON.stringify(stdin)}`);
   if (!config.enabled) {
     debug2("EXIT: disabled");
+    return;
+  }
+  const session = loadSession();
+  const cmdIndex = args.indexOf("--cmd");
+  if (cmdIndex !== -1 && args[cmdIndex + 1]) {
+    const subCmd = args[cmdIndex + 1];
+    const subArgs = args.slice(cmdIndex + 2);
+    const result = await dispatch(subCmd, subArgs);
+    if (result.message) process.stdout.write(result.message + "\n");
+    if (result.speak && result.message) await speakText(result.message, config);
+    return;
+  }
+  if (session.muted) {
+    debug2("EXIT: muted");
     return;
   }
   const sayIndex = args.indexOf("--say");
@@ -13546,19 +14032,28 @@ async function run(args, stdin) {
     debug2("EXIT: no text");
     return;
   }
-  if (!config.apiKey) {
-    handleError(new Error("No API key configured. Set OPENAI_API_KEY or configure via plugin settings."), config.logFile);
+  const apiKey = config.apiKeys[config.activeProvider];
+  if (!apiKey) {
+    handleError(
+      new Error(`No API key for ${config.activeProvider}. Set the appropriate environment variable.`),
+      config.logFile
+    );
     return;
   }
   const sanitized = sanitize(text);
   if (!sanitized) return;
   try {
-    const provider = new OpenAITTSProvider(config.apiKey);
+    const providerConfig = config.providers[config.activeProvider];
+    const provider = createProvider(config.activeProvider, config.apiKeys);
     const audio = await provider.synthesize(sanitized, {
-      voice: config.voice,
-      model: config.model,
-      instructions: config.instructions || void 0,
-      speed: config.speed
+      voice: providerConfig?.voice ?? "ash",
+      model: providerConfig?.model ?? "gpt-4o-mini-tts-2025-12-15",
+      instructions: providerConfig?.instructions,
+      speed: providerConfig?.speed,
+      voiceId: providerConfig?.voiceId,
+      stability: providerConfig?.stability,
+      similarityBoost: providerConfig?.similarityBoost,
+      style: providerConfig?.style
     });
     playAudio(audio, config.playback.command);
     if (isActiveVoice) {
@@ -13579,7 +14074,7 @@ function isIdleNotification(text) {
   return IDLE_NOTIFICATION_PATTERNS.some((pattern) => pattern.test(text));
 }
 function getLockPath() {
-  return path5.join(process.env.HOME || "", ".claude-speak", "voice.lock");
+  return path7.join(process.env.HOME || "", ".claude-speak", "voice.lock");
 }
 var isMainModule = process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/"));
 if (isMainModule) {
