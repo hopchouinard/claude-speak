@@ -249,15 +249,15 @@ claude-speak provides subcommands you can invoke during a session via `/speak:` 
 
 | Command | Effect |
 |---------|--------|
-| `/speak: mute` | Mute all TTS for this session |
-| `/speak: unmute` | Re-enable TTS (speaks a confirmation to prove it works) |
-| `/speak: provider openai` | Switch to OpenAI TTS (persistent) |
-| `/speak: provider elevenlabs` | Switch to ElevenLabs TTS (persistent) |
-| `/speak: voice Marin` | Change the speaking voice (persistent) |
-| `/speak: voices` | List available voices for the current provider |
-| `/speak: speed 1.2` | Adjust speech speed, 0.25-4.0 (persistent) |
-| `/speak: status` | Show current provider, voice, speed, mute state |
-| `/speak: test` | Speak a diagnostic phrase to verify everything works |
+| `/speak mute` | Mute all TTS for this session |
+| `/speak unmute` | Re-enable TTS (speaks a confirmation to prove it works) |
+| `/speak provider openai` | Switch to OpenAI TTS (persistent) |
+| `/speak provider elevenlabs` | Switch to ElevenLabs TTS (persistent) |
+| `/speak voice Marin` | Change the speaking voice (persistent) |
+| `/speak voices` | List available voices for the current provider |
+| `/speak speed 1.2` | Adjust speech speed, 0.25-4.0 (persistent) |
+| `/speak status` | Show current provider, voice, speed, mute state |
+| `/speak test` | Speak a diagnostic phrase to verify everything works |
 
 **Session vs. persistent changes:**
 - **Mute/unmute** is session-only. Every new session starts unmuted.
@@ -265,7 +265,7 @@ claude-speak provides subcommands you can invoke during a session via `/speak:` 
 
 ## Multi-Provider Support
 
-claude-speak supports both OpenAI and ElevenLabs TTS providers. Both can be fully configured in your config file simultaneously; you switch between them with `/speak: provider`.
+claude-speak supports both OpenAI and ElevenLabs TTS providers. Both can be fully configured in your config file simultaneously; you switch between them with `/speak provider`.
 
 ### Setting Up ElevenLabs
 
@@ -276,24 +276,24 @@ claude-speak supports both OpenAI and ElevenLabs TTS providers. Both can be full
 
 2. Switch to ElevenLabs:
    ```
-   /speak: provider elevenlabs
+   /speak provider elevenlabs
    ```
 
 3. Fetch your available voices (pulls from your ElevenLabs account):
    ```
-   /speak: voices
+   /speak voices
    ```
 
 4. Select a voice:
    ```
-   /speak: voice Rachel
+   /speak voice Rachel
    ```
 
 ### Voice Cache
 
-When you run `/speak: voices` with ElevenLabs active, the plugin calls the ElevenLabs API to fetch voices in your account and caches them locally at `~/.claude-speak/voices-elevenlabs.json`. This cache is used for name-to-ID resolution so you can configure voices by name instead of UUID.
+When you run `/speak voices` with ElevenLabs active, the plugin calls the ElevenLabs API to fetch voices in your account and caches them locally at `~/.claude-speak/voices-elevenlabs.json`. This cache is used for name-to-ID resolution so you can configure voices by name instead of UUID.
 
-To refresh the cache (e.g., after adding new voices to your ElevenLabs account), run `/speak: voices` again.
+To refresh the cache (e.g., after adding new voices to your ElevenLabs account), run `/speak voices` again.
 
 OpenAI voices are hardcoded (the list is small and static) and don't require caching.
 
@@ -323,8 +323,8 @@ export CLAUDE_SPEAK_ENABLED=true
 Or use the in-session subcommands for a more ergonomic toggle:
 
 ```
-/speak: mute
-/speak: unmute
+/speak mute
+/speak unmute
 ```
 
 You can also disable individual hooks in your config:
@@ -449,8 +449,8 @@ Hook fires (Stop/Notification)
 
 1. Check that `~/.claude-speak.json` exists and is valid JSON
 2. Check that your API key is set in `~/.claude-speak/env` (or in your shell environment)
-3. Run `/speak: status` to verify the plugin sees your config
-4. Run `/speak: test` to test the full pipeline
+3. Run `/speak status` to verify the plugin sees your config
+4. Run `/speak test` to test the full pipeline
 5. Run the [debug checks](#common-debug-checks) above
 
 ### Voice speaks twice
@@ -465,7 +465,7 @@ Your `cooldown` value may be too low. Increase it in `~/.claude-speak.json`:
 
 ### Voice never stops (overlapping audio)
 
-Each turn's audio plays independently. If Claude is responding quickly across multiple turns, audio from previous turns may overlap. Use `/speak: mute` to silence voice temporarily, or increase the cooldown.
+Each turn's audio plays independently. If Claude is responding quickly across multiple turns, audio from previous turns may overlap. Use `/speak mute` to silence voice temporarily, or increase the cooldown.
 
 ### "No API key" errors
 
@@ -485,8 +485,8 @@ The hooks can't find your API key. Ensure one of these is true for your active p
 You switched to ElevenLabs but haven't selected a voice yet. Run:
 
 ```
-/speak: voices
-/speak: voice <name>
+/speak voices
+/speak voice <name>
 ```
 
 ### Setup instructions appear every session

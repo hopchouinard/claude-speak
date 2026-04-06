@@ -37,15 +37,15 @@ node "<SKILL_BASE_DIR>/../../dist/cli.js" --cmd <subcommand> [args]
 
 | User invocation | CLI command | Effect |
 |---|---|---|
-| `/speak: mute` | `--cmd mute` | Mute all TTS for this session |
-| `/speak: unmute` | `--cmd unmute` | Re-enable TTS (speaks confirmation) |
-| `/speak: provider openai` | `--cmd provider openai` | Switch active TTS provider (persistent) |
-| `/speak: provider elevenlabs` | `--cmd provider elevenlabs` | Switch active TTS provider (persistent) |
-| `/speak: voice Marin` | `--cmd voice Marin` | Change voice (persistent) |
-| `/speak: voices` | `--cmd voices` | List available voices for current provider |
-| `/speak: speed 1.2` | `--cmd speed 1.2` | Change speed (persistent, range 0.25-4.0) |
-| `/speak: status` | `--cmd status` | Show current state |
-| `/speak: test` | `--cmd test` | Speak a diagnostic phrase |
+| `/speak mute` | `--cmd mute` | Mute all TTS for this session |
+| `/speak unmute` | `--cmd unmute` | Re-enable TTS (speaks confirmation) |
+| `/speak provider openai` | `--cmd provider openai` | Switch active TTS provider (persistent) |
+| `/speak provider elevenlabs` | `--cmd provider elevenlabs` | Switch active TTS provider (persistent) |
+| `/speak voice Marin` | `--cmd voice Marin` | Change voice (persistent) |
+| `/speak voices` | `--cmd voices` | List available voices for current provider |
+| `/speak speed 1.2` | `--cmd speed 1.2` | Change speed (persistent, range 0.25-4.0) |
+| `/speak status` | `--cmd status` | Show current state |
+| `/speak test` | `--cmd test` | Speak a diagnostic phrase |
 
 **Routing rule:** If the argument matches one of the subcommand keywords above (`mute`, `unmute`, `provider`, `voice`, `voices`, `speed`, `status`, `test`), use `--cmd`. Otherwise, treat the argument as speech content and use `--say`.
 

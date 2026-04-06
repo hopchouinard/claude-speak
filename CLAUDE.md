@@ -11,7 +11,7 @@ You can also choose to speak to the user at any point during your turn using the
 Invoke it by using the Skill tool with `speak` and providing your message as the argument. The skill will provide the exact commands to run.
 
 ### Subcommands
-The `speak` skill also supports subcommands for controlling voice output. Invoke with `/speak: <subcommand>`:
+The `speak` skill also supports subcommands for controlling voice output. Invoke with `/speak <subcommand>`:
 
 - `mute` / `unmute` — silence or restore TTS for the session
 - `provider openai` / `provider elevenlabs` — switch the active TTS provider (persistent)
