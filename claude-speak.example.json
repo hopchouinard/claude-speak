@@ -10,6 +10,7 @@
   "playback": {
     "command": "afplay"
   },
+  "speed": 1.0,
   "cooldown": 10,
   "timeout": 30,
   "logFile": "~/.claude-speak/logs/voice.log"

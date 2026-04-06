@@ -14,6 +14,7 @@ export class OpenAITTSProvider implements TTSProvider {
       voice: options.voice.toLowerCase(),
       input: text,
       ...(options.instructions ? { instructions: options.instructions } : {}),
+      ...(options.speed != null ? { speed: options.speed } : {}),
     } as Parameters<typeof this.client.audio.speech.create>[0];
 
     const response = await this.client.audio.speech.create(params);

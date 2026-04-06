@@ -74,6 +74,7 @@ export async function run(args: string[], stdin: string): Promise<void> {
       voice: config.voice,
       model: config.model,
       instructions: config.instructions || undefined,
+      speed: config.speed,
     });
 
     // Play

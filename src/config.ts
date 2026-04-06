@@ -16,6 +16,7 @@ export interface VoiceConfig {
   playback: {
     command: string;
   };
+  speed: number;
   cooldown: number;
   timeout: number;
   logFile: string;
@@ -30,6 +31,7 @@ function getDefaults(): Omit<VoiceConfig, 'enabled' | 'apiKey' | 'error'> {
     instructions: '',
     hooks: { stop: true, notification: true },
     playback: { command: detectPlaybackCommand() },
+    speed: 1.0,
     cooldown: 15,
     timeout: 30,
     logFile: path.join(os.homedir(), '.claude-speak', 'logs', 'voice.log'),
@@ -86,6 +88,7 @@ export function loadConfig(): VoiceConfig {
     playback: {
       command: (fileConfig.playback as Record<string, string>)?.command ?? DEFAULTS.playback.command,
     },
+    speed: (fileConfig.speed as number) ?? DEFAULTS.speed,
     cooldown: (fileConfig.cooldown as number) ?? DEFAULTS.cooldown,
     timeout: (fileConfig.timeout as number) ?? DEFAULTS.timeout,
     logFile: expandTilde((fileConfig.logFile as string) ?? DEFAULTS.logFile),

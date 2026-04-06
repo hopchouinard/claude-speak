@@ -19,17 +19,6 @@ export interface NewFormatConfig {
   logFile: string;
 }
 
-export const PROVIDER_FIELDS = [
-  'model',
-  'voice',
-  'voiceId',
-  'instructions',
-  'speed',
-  'stability',
-  'similarityBoost',
-  'style',
-] as const;
-
 /**
  * Returns true if the config is in the old flat format:
  * has `provider` as a string and no `providers` key.
@@ -69,6 +58,6 @@ export function migrateConfig(old: Record<string, unknown>): NewFormatConfig {
     playback: (old.playback as { command: string }) ?? { command: process.platform === 'darwin' ? 'afplay' : 'paplay' },
     cooldown: (old.cooldown as number) ?? 15,
     timeout: (old.timeout as number) ?? 30,
-    logFile: (old.logFile as string) ?? '',
+    logFile: (old.logFile as string) ?? '~/.claude-speak/logs/voice.log',
   };
 }

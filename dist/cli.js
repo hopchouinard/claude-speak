@@ -6689,6 +6689,7 @@ function getDefaults() {
     instructions: "",
     hooks: { stop: true, notification: true },
     playback: { command: detectPlaybackCommand() },
+    speed: 1,
     cooldown: 15,
     timeout: 30,
     logFile: path.join(os.homedir(), ".claude-speak", "logs", "voice.log")
@@ -6739,6 +6740,7 @@ function loadConfig() {
     playback: {
       command: fileConfig.playback?.command ?? DEFAULTS.playback.command
     },
+    speed: fileConfig.speed ?? DEFAULTS.speed,
     cooldown: fileConfig.cooldown ?? DEFAULTS.cooldown,
     timeout: fileConfig.timeout ?? DEFAULTS.timeout,
     logFile: expandTilde(fileConfig.logFile ?? DEFAULTS.logFile),
@@ -13422,7 +13424,8 @@ var OpenAITTSProvider = class {
       model: options.model,
       voice: options.voice.toLowerCase(),
       input: text,
-      ...options.instructions ? { instructions: options.instructions } : {}
+      ...options.instructions ? { instructions: options.instructions } : {},
+      ...options.speed != null ? { speed: options.speed } : {}
     };
     const response = await this.client.audio.speech.create(params);
     const arrayBuffer = await response.arrayBuffer();
@@ -13554,7 +13557,8 @@ async function run(args, stdin) {
     const audio = await provider.synthesize(sanitized, {
       voice: config.voice,
       model: config.model,
-      instructions: config.instructions || void 0
+      instructions: config.instructions || void 0,
+      speed: config.speed
     });
     playAudio(audio, config.playback.command);
     if (isActiveVoice) {

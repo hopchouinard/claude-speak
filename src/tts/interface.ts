@@ -2,6 +2,7 @@ export interface TTSOptions {
   voice: string;
   model: string;
   instructions?: string;
+  speed?: number;
 }
 
 export interface TTSProvider {
