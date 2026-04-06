@@ -58,14 +58,23 @@ export async function run(args: string[], stdin: string): Promise<void> {
 
   const session = loadSession();
 
-  // Check for --cmd routing first (must work even when muted, so user can unmute)
+  // Check for --cmd routing first (must work even when muted, so user can unmute/check status)
   const cmdIndex = args.indexOf('--cmd');
-  if (cmdIndex !== -1 && args[cmdIndex + 1]) {
+  if (cmdIndex !== -1) {
     const subCmd = args[cmdIndex + 1];
+    if (!subCmd) {
+      process.stdout.write('Usage: --cmd <subcommand> [args]\nAvailable: mute, unmute, provider, speed, voice, voices, status, test\n');
+      return;
+    }
     const subArgs = args.slice(cmdIndex + 2);
     const result = await dispatch(subCmd, subArgs);
     if (result.message) process.stdout.write(result.message + '\n');
-    if (result.speak && result.message) await speakText(result.message, config);
+    // Only speak if result requests it AND (not muted OR this is the unmute command)
+    if (result.speak && result.message && (!session.muted || subCmd === 'unmute')) {
+      // Reload config in case the subcommand changed it (e.g., provider, speed, voice)
+      const freshConfig = loadConfig();
+      await speakText(result.message, freshConfig);
+    }
     return;
   }
 

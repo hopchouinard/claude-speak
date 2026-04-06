@@ -32,7 +32,7 @@ IMPORTANT: Always run step 1 before step 2. Never combine them into one command.
 Subcommands are invoked with `--cmd` instead of `--say`. No lock file needed — subcommands do not produce speech that would conflict with the hook (except `unmute`, which speaks a confirmation).
 
 ```bash
-node "<SKILL_BASE_DIR>/../../dist/cli.js" --cmd "<subcommand>"
+node "<SKILL_BASE_DIR>/../../dist/cli.js" --cmd <subcommand> [args]
 ```
 
 | User invocation | CLI command | Effect |

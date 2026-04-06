@@ -214,6 +214,32 @@ describe('CLI run', () => {
     await run(['--cmd', 'unmute'], '');
 
     expect(subcommands.dispatch).toHaveBeenCalledWith('unmute', []);
+    // unmute should still speak even when muted
+    expect(mockSynthesize).toHaveBeenCalled();
+  });
+
+  it('does not speak for --cmd test when muted', async () => {
+    vi.mocked(session.loadSession).mockReturnValue({ muted: true });
+    vi.mocked(subcommands.dispatch).mockResolvedValue({
+      message: 'Voice check.',
+      speak: true,
+    });
+
+    await run(['--cmd', 'test'], '');
+
+    expect(subcommands.dispatch).toHaveBeenCalledWith('test', []);
+    // test has speak: true but session is muted, so no speech
+    expect(mockSynthesize).not.toHaveBeenCalled();
+  });
+
+  it('outputs usage when --cmd has no subcommand', async () => {
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+
+    await run(['--cmd'], '');
+
+    expect(subcommands.dispatch).not.toHaveBeenCalled();
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('Usage:'));
+    stdoutSpy.mockRestore();
   });
 });
 
