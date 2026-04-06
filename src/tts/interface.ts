@@ -3,6 +3,10 @@ export interface TTSOptions {
   model: string;
   instructions?: string;
   speed?: number;
+  voiceId?: string;
+  stability?: number;
+  similarityBoost?: number;
+  style?: number;
 }
 
 export interface TTSProvider {
