@@ -43,8 +43,16 @@ export function writeCache(voices: VoiceCacheEntry[]): void {
 
 export function resolveVoiceName(name: string, voices: VoiceCacheEntry[]): string | null {
   const lower = name.toLowerCase();
-  const match = voices.find((v) => v.name.toLowerCase() === lower);
-  return match ? match.voiceId : null;
+  // Exact match first
+  const exact = voices.find((v) => v.name.toLowerCase() === lower);
+  if (exact) return exact.voiceId;
+  // Prefix match: "Nina" matches "Nina - nerdy"
+  const prefix = voices.find((v) => v.name.toLowerCase().startsWith(lower));
+  if (prefix) return prefix.voiceId;
+  // Substring match: "nerdy" matches "Nina - nerdy"
+  const substring = voices.find((v) => v.name.toLowerCase().includes(lower));
+  if (substring) return substring.voiceId;
+  return null;
 }
 
 export async function fetchElevenLabsVoices(apiKey: string): Promise<VoiceCacheEntry[]> {

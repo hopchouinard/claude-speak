@@ -13702,8 +13702,13 @@ function writeCache(voices) {
 }
 function resolveVoiceName(name, voices) {
   const lower = name.toLowerCase();
-  const match = voices.find((v2) => v2.name.toLowerCase() === lower);
-  return match ? match.voiceId : null;
+  const exact = voices.find((v2) => v2.name.toLowerCase() === lower);
+  if (exact) return exact.voiceId;
+  const prefix = voices.find((v2) => v2.name.toLowerCase().startsWith(lower));
+  if (prefix) return prefix.voiceId;
+  const substring = voices.find((v2) => v2.name.toLowerCase().includes(lower));
+  if (substring) return substring.voiceId;
+  return null;
 }
 async function fetchElevenLabsVoices(apiKey) {
   const response = await fetch("https://api.elevenlabs.io/v1/voices", {

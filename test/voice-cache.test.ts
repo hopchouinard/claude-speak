@@ -60,6 +60,32 @@ describe('voice-cache', () => {
       expect(resolveVoiceName('Rachel', voices)).toBe('abc123');
     });
 
+    it('matches by prefix when exact match fails', async () => {
+      const voices = [
+        { name: 'Nina - nerdy', voiceId: 'nina123', category: 'generated' },
+        { name: 'Rachel', voiceId: 'abc123', category: 'premade' },
+      ];
+      const { resolveVoiceName } = await import('../src/voice-cache.js');
+      expect(resolveVoiceName('Nina', voices)).toBe('nina123');
+    });
+
+    it('matches by substring when prefix fails', async () => {
+      const voices = [
+        { name: 'Nina - nerdy', voiceId: 'nina123', category: 'generated' },
+      ];
+      const { resolveVoiceName } = await import('../src/voice-cache.js');
+      expect(resolveVoiceName('nerdy', voices)).toBe('nina123');
+    });
+
+    it('prefers exact match over prefix', async () => {
+      const voices = [
+        { name: 'Nina - nerdy', voiceId: 'nina-nerdy', category: 'generated' },
+        { name: 'Nina', voiceId: 'nina-exact', category: 'premade' },
+      ];
+      const { resolveVoiceName } = await import('../src/voice-cache.js');
+      expect(resolveVoiceName('Nina', voices)).toBe('nina-exact');
+    });
+
     it('returns null for unknown name', async () => {
       const voices = [
         { name: 'Rachel', voiceId: 'abc123', category: 'premade' },
