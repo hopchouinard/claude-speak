@@ -1,8 +1,21 @@
 {
-  "provider": "openai",
-  "model": "gpt-4o-mini-tts-2025-12-15",
-  "voice": "Marin",
-  "instructions": "Speak in a cheeky, conversational tone. Be direct and concise.",
+  "activeProvider": "openai",
+  "providers": {
+    "openai": {
+      "model": "gpt-4o-mini-tts-2025-12-15",
+      "voice": "Marin",
+      "instructions": "Speak in a cheeky, conversational tone. Be direct and concise.",
+      "speed": 1.0
+    },
+    "elevenlabs": {
+      "model": "eleven_multilingual_v2",
+      "voice": "",
+      "stability": 0.5,
+      "similarityBoost": 0.75,
+      "style": 0.0,
+      "speed": 1.0
+    }
+  },
   "hooks": {
     "stop": true,
     "notification": true
@@ -10,7 +23,6 @@
   "playback": {
     "command": "afplay"
   },
-  "speed": 1.0,
   "cooldown": 10,
   "timeout": 30,
   "logFile": "~/.claude-speak/logs/voice.log"

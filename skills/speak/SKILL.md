@@ -7,7 +7,7 @@ description: Speak to the user audibly through text-to-speech. Use when the user
 
 You have the ability to speak to the user audibly using text-to-speech.
 
-## How to invoke
+## Active Voice
 
 Run these two commands in sequence via the Bash tool. The first writes a lock file that prevents the end-of-turn hook from speaking over you. The second does the actual speech.
 
@@ -26,6 +26,28 @@ node "<SKILL_BASE_DIR>/../../dist/cli.js" --say "<your message here>"
 Replace `<SKILL_BASE_DIR>` with the base directory shown when this skill was loaded (e.g. `/path/to/claude-speak/1.0.0/skills/speak`). Replace `<your message here>` with the exact text you want spoken. Write it as natural speech — short, direct sentences. No markdown, no code blocks, no file paths unless they are essential to understanding.
 
 IMPORTANT: Always run step 1 before step 2. Never combine them into one command. The lock file prevents the passive end-of-turn hook from duplicating your message.
+
+## Subcommands
+
+Subcommands are invoked with `--cmd` instead of `--say`. No lock file needed — subcommands do not produce speech that would conflict with the hook (except `unmute`, which speaks a confirmation).
+
+```bash
+node "<SKILL_BASE_DIR>/../../dist/cli.js" --cmd "<subcommand>"
+```
+
+| User invocation | CLI command | Effect |
+|---|---|---|
+| `/speak: mute` | `--cmd mute` | Mute all TTS for this session |
+| `/speak: unmute` | `--cmd unmute` | Re-enable TTS (speaks confirmation) |
+| `/speak: provider openai` | `--cmd provider openai` | Switch active TTS provider (persistent) |
+| `/speak: provider elevenlabs` | `--cmd provider elevenlabs` | Switch active TTS provider (persistent) |
+| `/speak: voice Marin` | `--cmd voice Marin` | Change voice (persistent) |
+| `/speak: voices` | `--cmd voices` | List available voices for current provider |
+| `/speak: speed 1.2` | `--cmd speed 1.2` | Change speed (persistent, range 0.25-4.0) |
+| `/speak: status` | `--cmd status` | Show current state |
+| `/speak: test` | `--cmd test` | Speak a diagnostic phrase |
+
+**Routing rule:** If the argument matches one of the subcommand keywords above (`mute`, `unmute`, `provider`, `voice`, `voices`, `speed`, `status`, `test`), use `--cmd`. Otherwise, treat the argument as speech content and use `--say`.
 
 ## When to use
 

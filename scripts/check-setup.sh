@@ -9,13 +9,22 @@ EXAMPLE_CONFIG="${CLAUDE_PLUGIN_ROOT}/claude-speak.example.json"
 HAS_ISSUES=false
 ISSUES=""
 
-# Check for env file with API key
-if [ ! -f "$ENV_FILE" ] || ! grep -q "OPENAI_API_KEY" "$ENV_FILE" 2>/dev/null; then
-  # Fallback: check if it's in the environment already
-  if [ -z "$OPENAI_API_KEY" ] && [ -z "$CLAUDE_PLUGIN_OPTION_OPENAI_API_KEY" ]; then
-    HAS_ISSUES=true
-    ISSUES="${ISSUES}\n- **API key not configured.** Create the file \`~/.claude-speak/env\` with this content:\n  \`export OPENAI_API_KEY=sk-your-key-here\`\n  This file is sourced by the voice hooks and keeps your key out of Claude's context."
+# Clean session state from previous session (fresh start)
+rm -f "$HOME/.claude-speak/session.json"
+
+# Check for env file with API key (accept OpenAI or ElevenLabs)
+HAS_API_KEY=false
+if [ -f "$ENV_FILE" ]; then
+  if grep -q "OPENAI_API_KEY" "$ENV_FILE" 2>/dev/null || grep -q "ELEVENLABS_API_KEY" "$ENV_FILE" 2>/dev/null; then
+    HAS_API_KEY=true
   fi
+fi
+if [ -n "$OPENAI_API_KEY" ] || [ -n "$CLAUDE_PLUGIN_OPTION_OPENAI_API_KEY" ] || [ -n "$ELEVENLABS_API_KEY" ] || [ -n "$CLAUDE_PLUGIN_OPTION_ELEVENLABS_API_KEY" ]; then
+  HAS_API_KEY=true
+fi
+if [ "$HAS_API_KEY" = false ]; then
+  HAS_ISSUES=true
+  ISSUES="${ISSUES}\n- **API key not configured.** Create the file \`~/.claude-speak/env\` with your provider key:\n  \`export OPENAI_API_KEY=sk-your-key-here\` (for OpenAI)\n  \`export ELEVENLABS_API_KEY=your-key-here\` (for ElevenLabs)\n  This file is sourced by the voice hooks and keeps your key out of Claude's context."
 fi
 
 # Check for config file
