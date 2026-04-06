@@ -1,6 +1,6 @@
 {
   "name": "claude-speak",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Voice output layer for Claude Code — passive spoken summaries and active voice capability",
   "type": "module",
   "scripts": {
