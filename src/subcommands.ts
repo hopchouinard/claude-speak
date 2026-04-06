@@ -150,19 +150,25 @@ async function handleVoice(args: string[]): Promise<SubcommandResult> {
   // ElevenLabs: resolve via cache, fall back to raw ID
   const cache = readCache();
   const voices = cache?.voices ?? [];
-  const voiceId = resolveVoiceName(name, voices);
+  const matches = resolveVoiceName(name, voices);
 
-  if (voiceId) {
+  if (matches.length > 1) {
+    const list = matches.map((m) => `  ${m.name} (${m.voiceId})`).join('\n');
+    return { message: `Multiple voices match "${name}":\n${list}\nBe more specific or use the voice ID directly.`, speak: false, error: true };
+  }
+
+  if (matches.length === 1) {
+    const match = matches[0];
     updateConfigFile((cfg) => {
       const providers = (cfg.providers ?? {}) as Record<string, Record<string, unknown>>;
       if (!providers.elevenlabs) {
         providers.elevenlabs = { ...PROVIDER_DEFAULTS.elevenlabs };
       }
-      providers.elevenlabs.voice = name;
-      providers.elevenlabs.voiceId = voiceId;
+      providers.elevenlabs.voice = match.name;
+      providers.elevenlabs.voiceId = match.voiceId;
       cfg.providers = providers;
     });
-    return { message: `ElevenLabs voice set to ${name} (${voiceId}).`, speak: true };
+    return { message: `ElevenLabs voice set to ${match.name} (${match.voiceId}).`, speak: false };
   }
 
   // Treat as raw voice ID

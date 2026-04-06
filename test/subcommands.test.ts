@@ -203,7 +203,7 @@ describe('subcommand dispatcher', () => {
         { name: 'Rachel', voiceId: 'abc123', category: 'premade' },
       ];
       mockReadCache.mockReturnValue({ fetched: '2026-01-01', voices: cache });
-      mockResolveVoiceName.mockReturnValue('abc123');
+      mockResolveVoiceName.mockReturnValue([{ voiceId: 'abc123', name: 'Rachel', matchType: 'exact' }]);
       const fileConfig = {
         activeProvider: 'elevenlabs',
         providers: { elevenlabs: { model: 'eleven_multilingual_v2', voice: 'Rachel', speed: 1.0 } },
@@ -224,7 +224,7 @@ describe('subcommand dispatcher', () => {
       const config = makeConfig({ activeProvider: 'elevenlabs' });
       mockLoadConfig.mockReturnValue(config);
       mockReadCache.mockReturnValue({ fetched: '2026-01-01', voices: [] });
-      mockResolveVoiceName.mockReturnValue(null);
+      mockResolveVoiceName.mockReturnValue([]);
       const fileConfig = {
         activeProvider: 'elevenlabs',
         providers: { elevenlabs: { model: 'eleven_multilingual_v2', voice: '', speed: 1.0 } },

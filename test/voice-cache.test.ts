@@ -49,15 +49,14 @@ describe('voice-cache', () => {
   });
 
   describe('resolveVoiceName', () => {
-    it('does case-insensitive match and returns voiceId', async () => {
+    it('does case-insensitive exact match', async () => {
       const voices = [
         { name: 'Rachel', voiceId: 'abc123', category: 'premade' },
         { name: 'Adam', voiceId: 'def456', category: 'premade' },
       ];
       const { resolveVoiceName } = await import('../src/voice-cache.js');
-      expect(resolveVoiceName('rachel', voices)).toBe('abc123');
-      expect(resolveVoiceName('RACHEL', voices)).toBe('abc123');
-      expect(resolveVoiceName('Rachel', voices)).toBe('abc123');
+      expect(resolveVoiceName('rachel', voices)).toEqual([{ voiceId: 'abc123', name: 'Rachel', matchType: 'exact' }]);
+      expect(resolveVoiceName('RACHEL', voices)).toEqual([{ voiceId: 'abc123', name: 'Rachel', matchType: 'exact' }]);
     });
 
     it('matches by prefix when exact match fails', async () => {
@@ -66,7 +65,10 @@ describe('voice-cache', () => {
         { name: 'Rachel', voiceId: 'abc123', category: 'premade' },
       ];
       const { resolveVoiceName } = await import('../src/voice-cache.js');
-      expect(resolveVoiceName('Nina', voices)).toBe('nina123');
+      const matches = resolveVoiceName('Nina', voices);
+      expect(matches).toHaveLength(1);
+      expect(matches[0].voiceId).toBe('nina123');
+      expect(matches[0].matchType).toBe('prefix');
     });
 
     it('matches by substring when prefix fails', async () => {
@@ -74,7 +76,10 @@ describe('voice-cache', () => {
         { name: 'Nina - nerdy', voiceId: 'nina123', category: 'generated' },
       ];
       const { resolveVoiceName } = await import('../src/voice-cache.js');
-      expect(resolveVoiceName('nerdy', voices)).toBe('nina123');
+      const matches = resolveVoiceName('nerdy', voices);
+      expect(matches).toHaveLength(1);
+      expect(matches[0].voiceId).toBe('nina123');
+      expect(matches[0].matchType).toBe('substring');
     });
 
     it('prefers exact match over prefix', async () => {
@@ -83,15 +88,30 @@ describe('voice-cache', () => {
         { name: 'Nina', voiceId: 'nina-exact', category: 'premade' },
       ];
       const { resolveVoiceName } = await import('../src/voice-cache.js');
-      expect(resolveVoiceName('Nina', voices)).toBe('nina-exact');
+      const matches = resolveVoiceName('Nina', voices);
+      expect(matches).toHaveLength(1);
+      expect(matches[0].voiceId).toBe('nina-exact');
+      expect(matches[0].matchType).toBe('exact');
     });
 
-    it('returns null for unknown name', async () => {
+    it('returns all matches when ambiguous', async () => {
+      const voices = [
+        { name: 'Sarah - Mature', voiceId: 'sarah1', category: 'premade' },
+        { name: 'Sarah - Soft', voiceId: 'sarah2', category: 'premade' },
+      ];
+      const { resolveVoiceName } = await import('../src/voice-cache.js');
+      const matches = resolveVoiceName('Sarah', voices);
+      expect(matches).toHaveLength(2);
+      expect(matches[0].voiceId).toBe('sarah1');
+      expect(matches[1].voiceId).toBe('sarah2');
+    });
+
+    it('returns empty array for unknown name', async () => {
       const voices = [
         { name: 'Rachel', voiceId: 'abc123', category: 'premade' },
       ];
       const { resolveVoiceName } = await import('../src/voice-cache.js');
-      expect(resolveVoiceName('UnknownVoice', voices)).toBeNull();
+      expect(resolveVoiceName('UnknownVoice', voices)).toEqual([]);
     });
   });
 

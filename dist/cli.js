@@ -13702,13 +13702,13 @@ function writeCache(voices) {
 }
 function resolveVoiceName(name, voices) {
   const lower = name.toLowerCase();
-  const exact = voices.find((v2) => v2.name.toLowerCase() === lower);
-  if (exact) return exact.voiceId;
-  const prefix = voices.find((v2) => v2.name.toLowerCase().startsWith(lower));
-  if (prefix) return prefix.voiceId;
-  const substring = voices.find((v2) => v2.name.toLowerCase().includes(lower));
-  if (substring) return substring.voiceId;
-  return null;
+  const exact = voices.filter((v2) => v2.name.toLowerCase() === lower);
+  if (exact.length > 0) return exact.map((v2) => ({ voiceId: v2.voiceId, name: v2.name, matchType: "exact" }));
+  const prefix = voices.filter((v2) => v2.name.toLowerCase().startsWith(lower));
+  if (prefix.length > 0) return prefix.map((v2) => ({ voiceId: v2.voiceId, name: v2.name, matchType: "prefix" }));
+  const substring = voices.filter((v2) => v2.name.toLowerCase().includes(lower));
+  if (substring.length > 0) return substring.map((v2) => ({ voiceId: v2.voiceId, name: v2.name, matchType: "substring" }));
+  return [];
 }
 async function fetchElevenLabsVoices(apiKey) {
   const response = await fetch("https://api.elevenlabs.io/v1/voices", {
@@ -13852,18 +13852,25 @@ async function handleVoice(args) {
   }
   const cache = readCache();
   const voices = cache?.voices ?? [];
-  const voiceId = resolveVoiceName(name, voices);
-  if (voiceId) {
+  const matches = resolveVoiceName(name, voices);
+  if (matches.length > 1) {
+    const list = matches.map((m2) => `  ${m2.name} (${m2.voiceId})`).join("\n");
+    return { message: `Multiple voices match "${name}":
+${list}
+Be more specific or use the voice ID directly.`, speak: false, error: true };
+  }
+  if (matches.length === 1) {
+    const match = matches[0];
     updateConfigFile((cfg) => {
       const providers = cfg.providers ?? {};
       if (!providers.elevenlabs) {
         providers.elevenlabs = { ...PROVIDER_DEFAULTS.elevenlabs };
       }
-      providers.elevenlabs.voice = name;
-      providers.elevenlabs.voiceId = voiceId;
+      providers.elevenlabs.voice = match.name;
+      providers.elevenlabs.voiceId = match.voiceId;
       cfg.providers = providers;
     });
-    return { message: `ElevenLabs voice set to ${name} (${voiceId}).`, speak: true };
+    return { message: `ElevenLabs voice set to ${match.name} (${match.voiceId}).`, speak: false };
   }
   updateConfigFile((cfg) => {
     const providers = cfg.providers ?? {};

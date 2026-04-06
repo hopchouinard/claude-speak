@@ -41,18 +41,28 @@ export function writeCache(voices: VoiceCacheEntry[]): void {
   fs.writeFileSync(cachePath, JSON.stringify(data, null, 2), 'utf-8');
 }
 
-export function resolveVoiceName(name: string, voices: VoiceCacheEntry[]): string | null {
+export interface VoiceMatch {
+  voiceId: string;
+  name: string;
+  matchType: 'exact' | 'prefix' | 'substring';
+}
+
+export function resolveVoiceName(name: string, voices: VoiceCacheEntry[]): VoiceMatch[] {
   const lower = name.toLowerCase();
-  // Exact match first
-  const exact = voices.find((v) => v.name.toLowerCase() === lower);
-  if (exact) return exact.voiceId;
+
+  // Exact match — always unambiguous
+  const exact = voices.filter((v) => v.name.toLowerCase() === lower);
+  if (exact.length > 0) return exact.map((v) => ({ voiceId: v.voiceId, name: v.name, matchType: 'exact' as const }));
+
   // Prefix match: "Nina" matches "Nina - nerdy"
-  const prefix = voices.find((v) => v.name.toLowerCase().startsWith(lower));
-  if (prefix) return prefix.voiceId;
+  const prefix = voices.filter((v) => v.name.toLowerCase().startsWith(lower));
+  if (prefix.length > 0) return prefix.map((v) => ({ voiceId: v.voiceId, name: v.name, matchType: 'prefix' as const }));
+
   // Substring match: "nerdy" matches "Nina - nerdy"
-  const substring = voices.find((v) => v.name.toLowerCase().includes(lower));
-  if (substring) return substring.voiceId;
-  return null;
+  const substring = voices.filter((v) => v.name.toLowerCase().includes(lower));
+  if (substring.length > 0) return substring.map((v) => ({ voiceId: v.voiceId, name: v.name, matchType: 'substring' as const }));
+
+  return [];
 }
 
 export async function fetchElevenLabsVoices(apiKey: string): Promise<VoiceCacheEntry[]> {
