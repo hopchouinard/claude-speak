@@ -6,5 +6,15 @@
     "name": "pchouinard"
   },
   "license": "MIT",
-  "keywords": ["voice", "tts", "accessibility", "audio"]
+  "keywords": ["voice", "tts", "accessibility", "audio"],
+  "userConfig": {
+    "openai_api_key": {
+      "description": "OpenAI API key for text-to-speech (required for OpenAI provider)",
+      "sensitive": true
+    },
+    "elevenlabs_api_key": {
+      "description": "ElevenLabs API key for voice synthesis (required for ElevenLabs provider)",
+      "sensitive": true
+    }
+  }
 }
