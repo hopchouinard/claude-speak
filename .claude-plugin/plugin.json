@@ -9,11 +9,15 @@
   "keywords": ["voice", "tts", "accessibility", "audio"],
   "userConfig": {
     "openai_api_key": {
+      "title": "OpenAI API Key",
       "description": "OpenAI API key for text-to-speech (required for OpenAI provider)",
+      "type": "string",
       "sensitive": true
     },
     "elevenlabs_api_key": {
+      "title": "ElevenLabs API Key",
       "description": "ElevenLabs API key for voice synthesis (required for ElevenLabs provider)",
+      "type": "string",
       "sensitive": true
     }
   }
