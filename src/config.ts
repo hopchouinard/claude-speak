@@ -44,6 +44,13 @@ export const PROVIDER_DEFAULTS: Record<string, ProviderConfig> = {
   },
 };
 
+function expandTilde(filePath: string): string {
+  if (filePath.startsWith('~/')) {
+    return path.join(os.homedir(), filePath.slice(2));
+  }
+  return filePath;
+}
+
 function detectPlaybackCommand(): string {
   return process.platform === 'darwin' ? 'afplay' : 'paplay';
 }
@@ -144,6 +151,6 @@ export function loadConfig(): VoiceConfig {
     },
     cooldown: (fileConfig.cooldown as number) ?? shared.cooldown,
     timeout: (fileConfig.timeout as number) ?? shared.timeout,
-    logFile: (fileConfig.logFile as string) ?? shared.logFile,
+    logFile: expandTilde((fileConfig.logFile as string) ?? shared.logFile),
   };
 }
