@@ -13548,6 +13548,9 @@ var ElevenLabsTTSProvider = class {
   }
   async synthesize(text, options) {
     const voiceId = options.voiceId || options.voice;
+    if (!voiceId) {
+      throw new Error("No voice configured for ElevenLabs. Run /speak: voices to fetch your voice list, then /speak: voice [name] to select one.");
+    }
     const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
     const voiceSettings = {};
     if (options.speed != null) voiceSettings.speed = options.speed;
@@ -13788,7 +13791,10 @@ async function handleProvider(args) {
     }
     cfg.providers = providers;
   });
-  return { message: `Switched to ${name} provider.`, speak: true };
+  const providerConfig = config.providers[name];
+  const hasVoice = providerConfig?.voice || providerConfig?.voiceId;
+  const hint = hasVoice ? "" : " Run /speak: voices then /speak: voice [name] to configure a voice.";
+  return { message: `Switched to ${name} provider.${hint}`, speak: false };
 }
 async function handleSpeed(args) {
   const raw = args[0];

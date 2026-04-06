@@ -112,4 +112,10 @@ describe('ElevenLabsTTSProvider', () => {
     const [url] = mockFetch.mock.calls[0];
     expect(url).toBe('https://api.elevenlabs.io/v1/text-to-speech/actual-voice-id-123');
   });
+
+  it('throws when no voice or voiceId is configured', async () => {
+    await expect(
+      provider.synthesize('Hello', { voice: '', model: 'eleven_multilingual_v2' })
+    ).rejects.toThrow('No voice configured for ElevenLabs');
+  });
 });

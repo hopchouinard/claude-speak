@@ -9,6 +9,9 @@ export class ElevenLabsTTSProvider implements TTSProvider {
 
   async synthesize(text: string, options: TTSOptions): Promise<Buffer> {
     const voiceId = options.voiceId || options.voice;
+    if (!voiceId) {
+      throw new Error('No voice configured for ElevenLabs. Run /speak: voices to fetch your voice list, then /speak: voice [name] to select one.');
+    }
     const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
 
     const voiceSettings: Record<string, number> = {};

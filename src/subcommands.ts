@@ -81,7 +81,11 @@ async function handleProvider(args: string[]): Promise<SubcommandResult> {
     cfg.providers = providers;
   });
 
-  return { message: `Switched to ${name} provider.`, speak: true };
+  // Don't speak — the new provider may not have a voice configured yet
+  const providerConfig = config.providers[name];
+  const hasVoice = providerConfig?.voice || providerConfig?.voiceId;
+  const hint = hasVoice ? '' : ' Run /speak: voices then /speak: voice [name] to configure a voice.';
+  return { message: `Switched to ${name} provider.${hint}`, speak: false };
 }
 
 async function handleSpeed(args: string[]): Promise<SubcommandResult> {
