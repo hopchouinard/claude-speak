@@ -23,7 +23,7 @@ mkdir -p ~/.claude-speak && date +%s000 > ~/.claude-speak/voice.lock
 node "<SKILL_BASE_DIR>/../../dist/cli.js" --say "<your message here>"
 ```
 
-Replace `<SKILL_BASE_DIR>` with the base directory shown when this skill was loaded (e.g. `/path/to/claude-speak/1.0.0/skills/speak`). Replace `<your message here>` with the exact text you want spoken. Write it as natural speech — short, direct sentences. No markdown, no code blocks, no file paths unless they are essential to understanding.
+Replace `<SKILL_BASE_DIR>` with the base directory shown when this skill was loaded (e.g. `/path/to/claude-speak/1.2.0/skills/speak`). Replace `<your message here>` with the exact text you want spoken. Write it as natural speech — short, direct sentences. No markdown, no code blocks, no file paths unless they are essential to understanding.
 
 IMPORTANT: Always run step 1 before step 2. Never combine them into one command. The lock file prevents the passive end-of-turn hook from duplicating your message.
 
