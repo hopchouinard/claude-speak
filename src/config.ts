@@ -10,6 +10,18 @@ export interface ApiKeys {
   elevenlabs: string | null;
 }
 
+export interface SummarizerConfig {
+  model: string;
+  timeout: number;
+  maxWords: number;
+}
+
+export interface SpeechConfig {
+  maxChars: number;
+  condense: boolean;
+  summarizer: SummarizerConfig;
+}
+
 export interface VoiceConfig {
   enabled: boolean;
   activeProvider: string;
@@ -22,6 +34,7 @@ export interface VoiceConfig {
   playback: {
     command: string;
   };
+  speech: SpeechConfig;
   cooldown: number;
   timeout: number;
   logFile: string;
@@ -59,6 +72,15 @@ function getSharedDefaults() {
   return {
     hooks: { stop: true, notification: true },
     playback: { command: detectPlaybackCommand() },
+    speech: {
+      maxChars: 500,
+      condense: true,
+      summarizer: {
+        model: 'gpt-5.4-nano-2026-03-17',
+        timeout: 8,
+        maxWords: 40,
+      },
+    },
     cooldown: 15,
     timeout: 30,
     logFile: path.join(os.homedir(), '.claude-speak', 'logs', 'voice.log'),
@@ -137,6 +159,18 @@ export function loadConfig(): VoiceConfig {
 
   const enabled = envEnabled !== undefined ? envEnabled === 'true' : true;
 
+  const rawSpeech = (fileConfig.speech as Record<string, unknown>) ?? {};
+  const rawSummarizer = (rawSpeech.summarizer as Record<string, unknown>) ?? {};
+  const speech: SpeechConfig = {
+    maxChars: (rawSpeech.maxChars as number) ?? shared.speech.maxChars,
+    condense: (rawSpeech.condense as boolean) ?? shared.speech.condense,
+    summarizer: {
+      model: (rawSummarizer.model as string) ?? shared.speech.summarizer.model,
+      timeout: (rawSummarizer.timeout as number) ?? shared.speech.summarizer.timeout,
+      maxWords: (rawSummarizer.maxWords as number) ?? shared.speech.summarizer.maxWords,
+    },
+  };
+
   return {
     enabled,
     activeProvider,
@@ -149,6 +183,7 @@ export function loadConfig(): VoiceConfig {
     playback: {
       command: (fileConfig.playback as Record<string, string>)?.command ?? shared.playback.command,
     },
+    speech,
     cooldown: (fileConfig.cooldown as number) ?? shared.cooldown,
     timeout: (fileConfig.timeout as number) ?? shared.timeout,
     logFile: expandTilde((fileConfig.logFile as string) ?? shared.logFile),

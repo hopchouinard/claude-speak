@@ -124,4 +124,48 @@ describe('loadConfig', () => {
     expect(config.enabled).toBe(false);
     expect(config.error).toBe('malformed-config');
   });
+
+  describe('speech config', () => {
+    it('supplies speech defaults when no config file exists', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      const { loadConfig } = await import('../src/config.js');
+      const config = loadConfig();
+      expect(config.speech.maxChars).toBe(500);
+      expect(config.speech.condense).toBe(true);
+      expect(config.speech.summarizer.model).toBe('gpt-5.4-nano-2026-03-17');
+      expect(config.speech.summarizer.timeout).toBe(8);
+      expect(config.speech.summarizer.maxWords).toBe(40);
+    });
+
+    it('overrides speech defaults from the config file', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(
+        JSON.stringify({
+          activeProvider: 'openai',
+          providers: { openai: { model: 'm', voice: 'ash', speed: 1 } },
+          speech: { maxChars: 200, condense: false },
+        }),
+      );
+      const { loadConfig } = await import('../src/config.js');
+      const config = loadConfig();
+      expect(config.speech.maxChars).toBe(200);
+      expect(config.speech.condense).toBe(false);
+    });
+
+    it('merges a partial summarizer block over its defaults', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(
+        JSON.stringify({
+          activeProvider: 'openai',
+          providers: { openai: { model: 'm', voice: 'ash', speed: 1 } },
+          speech: { summarizer: { timeout: 3 } },
+        }),
+      );
+      const { loadConfig } = await import('../src/config.js');
+      const config = loadConfig();
+      expect(config.speech.summarizer.timeout).toBe(3);
+      expect(config.speech.summarizer.model).toBe('gpt-5.4-nano-2026-03-17');
+      expect(config.speech.summarizer.maxWords).toBe(40);
+    });
+  });
 });
