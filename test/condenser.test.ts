@@ -1,0 +1,106 @@
+import { describe, it, expect } from 'vitest';
+import { shouldCondense, heuristicCondense } from '../src/condenser.js';
+import { sanitize } from '../src/sanitizer.js';
+
+describe('shouldCondense', () => {
+  it('is false for a short plain-prose message', () => {
+    expect(shouldCondense('Done. All tests pass.', 500)).toBe(false);
+  });
+
+  it('is true when a markdown table is present, however short', () => {
+    const raw = 'Done.\n\n| File | Status |\n|---|---|\n| a.ts | ok |\n';
+    expect(shouldCondense(raw, 500)).toBe(true);
+  });
+
+  it('is true when a fenced code block is present', () => {
+    expect(shouldCondense('Run this:\n\n```bash\nnpm test\n```\n', 500)).toBe(true);
+  });
+
+  it('is true at five list items', () => {
+    const raw = '- one\n- two\n- three\n- four\n- five\n';
+    expect(shouldCondense(raw, 500)).toBe(true);
+  });
+
+  it('is false at four list items', () => {
+    const raw = '- one\n- two\n- three\n- four\n';
+    expect(shouldCondense(raw, 500)).toBe(false);
+  });
+
+  it('counts numbered list items too', () => {
+    const raw = '1. one\n2. two\n3. three\n4. four\n5. five\n';
+    expect(shouldCondense(raw, 500)).toBe(true);
+  });
+
+  it('is true when sanitized length exceeds maxChars', () => {
+    expect(shouldCondense('word '.repeat(200), 500)).toBe(true);
+  });
+
+  it('measures length after sanitizing, not before', () => {
+    // Bold markers push the RAW length over the threshold while the spoken
+    // text stays under it. This must not trigger condensation.
+    // raw = (2 + 48 + 2) * 2 + 1 space = 105 chars, over the 100 threshold.
+    // sanitized = 48 + 1 + 48 = 97 chars, under it.
+    const spoken = 'a'.repeat(48);
+    const raw = `**${spoken}** **${spoken}**`;
+    expect(raw.length).toBeGreaterThan(100);
+    expect(sanitize(raw).length).toBeLessThanOrEqual(100);
+    expect(shouldCondense(raw, 100)).toBe(false);
+  });
+});
+
+describe('heuristicCondense', () => {
+  it('drops table blocks entirely', () => {
+    const raw = 'Finished.\n\n| File | Status |\n|---|---|\n| a.ts | ok |\n\nAll good.';
+    const out = heuristicCondense(raw, 500);
+    expect(out).not.toContain('a.ts');
+    expect(out).not.toContain('|');
+  });
+
+  it('drops fenced code blocks including their contents', () => {
+    const raw = 'Run:\n\n```bash\nnpm test --coverage\n```\n\nThen review.';
+    const out = heuristicCondense(raw, 500);
+    expect(out).not.toContain('npm test');
+    expect(out).not.toContain('```');
+  });
+
+  it('keeps the first three list items and summarizes the rest', () => {
+    const raw = '- one\n- two\n- three\n- four\n- five\n- six\n';
+    const out = heuristicCondense(raw, 500);
+    expect(out).toContain('one');
+    expect(out).toContain('three');
+    expect(out).not.toContain('five');
+    expect(out).toContain('and 3 more');
+  });
+
+  it('does not add a "more" note when there are three or fewer items', () => {
+    const out = heuristicCondense('- one\n- two\n', 500);
+    expect(out).not.toContain('more');
+  });
+
+  it('truncates on a sentence boundary, never mid-word', () => {
+    const raw = 'First sentence here. Second sentence here. Third sentence here.';
+    const out = heuristicCondense(raw, 40);
+    expect(out.length).toBeLessThanOrEqual(40);
+    expect(out).toMatch(/\.$/);
+    expect(out).toBe('First sentence here.');
+  });
+
+  it('falls back to a word boundary when no sentence break fits', () => {
+    const out = heuristicCondense('alpha beta gamma delta epsilon zeta', 20);
+    expect(out.length).toBeLessThanOrEqual(20);
+    expect(out).not.toMatch(/\w$/);
+  });
+
+  it('keeps the first and last paragraph, dropping the middle', () => {
+    const raw = 'Opening line.\n\nMiddle noise here.\n\nClosing line.';
+    const out = heuristicCondense(raw, 500);
+    expect(out).toContain('Opening line.');
+    expect(out).toContain('Closing line.');
+    expect(out).not.toContain('Middle noise');
+  });
+
+  it('returns an empty string for input that is entirely a table', () => {
+    const raw = '| File | Status |\n|---|---|\n| a.ts | ok |\n';
+    expect(heuristicCondense(raw, 500).trim()).toBe('');
+  });
+});
