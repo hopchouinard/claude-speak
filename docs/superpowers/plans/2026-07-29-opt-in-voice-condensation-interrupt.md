@@ -28,7 +28,8 @@
 - **Never beep on a routine fallback.** `handleError()` plays an audible error sound; use `logWarning()` for summarizer failures.
 - **`--cmd` routing must stay reachable while voice is off.** It is how the user turns voice on and how `shutup` works.
 - **Run `npm run build` before any manual hook verification.** Hooks execute `dist/cli.js`, not `src/`.
-- Verify with `npm test` and `npm run typecheck`.
+- **Verification is task-scoped for Tasks 1–6, whole-suite for Tasks 7–9.** Tasks 1–6 deliberately leave the full suite red: `session.ts` removes exports that `cli.ts` and `subcommands.ts` still import, and Task 7 repairs it. For Tasks 1–6 the passing gate is the task's own `npx vitest run test/<file>` command, stated in that task's Step 2 and Step 4. `npm test && npm run typecheck` must pass at Task 7 and again at Task 9. A red full suite during Tasks 1–6 is expected and is not a defect; a red *task-scoped* suite is.
+- **The synthesize → stop-epoch-guard → playAudio sequence is intentionally duplicated** between `speakText()` and `run()`. That duplication is pre-existing in `cli.ts`; this change adds the guard to both copies rather than extracting a shared helper, to keep the diff scoped to the three features. Extracting it is a known deferred cleanup, not part of this plan.
 
 ---
 
@@ -635,6 +636,7 @@ Create `test/condenser.test.ts`:
 ```ts
 import { describe, it, expect } from 'vitest';
 import { shouldCondense, heuristicCondense } from '../src/condenser.js';
+import { sanitize } from '../src/sanitizer.js';
 
 describe('shouldCondense', () => {
   it('is false for a short plain-prose message', () => {
@@ -670,11 +672,14 @@ describe('shouldCondense', () => {
   });
 
   it('measures length after sanitizing, not before', () => {
-    // Bold markers inflate raw length past the threshold, but the spoken text
-    // is under it. This must not trigger condensation.
-    const spoken = 'a'.repeat(40);
+    // Bold markers push the RAW length over the threshold while the spoken
+    // text stays under it. This must not trigger condensation.
+    // raw = (2 + 48 + 2) * 2 + 1 space = 105 chars, over the 100 threshold.
+    // sanitized = 48 + 1 + 48 = 97 chars, under it.
+    const spoken = 'a'.repeat(48);
     const raw = `**${spoken}** **${spoken}**`;
-    expect(raw.length).toBeGreaterThan(90);
+    expect(raw.length).toBeGreaterThan(100);
+    expect(sanitize(raw).length).toBeLessThanOrEqual(100);
     expect(shouldCondense(raw, 100)).toBe(false);
   });
 });
@@ -2232,6 +2237,7 @@ Wires the interrupt triggers into the harness. This task has no unit tests; veri
 - Create: `bin/shutup`
 - Modify: `hooks/hooks.json`
 - Modify: `scripts/check-setup.sh`
+- Modify: `src/subcommands.ts` (adds the `gc` case only — see Step 3)
 
 **Interfaces:**
 - Consumes: `--cmd stop` and `--cmd turn-start` from Task 6; `gcSessions` from Task 1.
