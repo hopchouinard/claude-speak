@@ -1,5 +1,9 @@
 import { sanitize } from './sanitizer.js';
 
+// Mirrors the table-separator regex used by convertTables() in
+// src/sanitizer.ts. The two must stay in step: if one changes what counts as
+// a markdown table separator row, shouldCondense's table detection drifts
+// out of sync with what sanitize() actually flattens into prose.
 const TABLE_SEPARATOR = /^\|?\s*[-:]+\s*\|/;
 const LIST_ITEM = /^\s*(?:[-*]\s+|\d+\.\s+)/;
 
@@ -35,14 +39,29 @@ export function shouldCondense(raw: string, maxChars: number): boolean {
 
 function stripCodeFences(text: string): string {
   const lines = text.split('\n');
+  const fenceIndices: number[] = [];
+  lines.forEach((line, idx) => {
+    if (/^```/.test(line)) fenceIndices.push(idx);
+  });
+
+  // An odd number of fence markers means the last one never closed. The spec
+  // says drop fenced *blocks*; an unterminated fence never completes a block,
+  // so it does not pair up. Only paired markers toggle stripping — this
+  // bounds the blast radius of one stray backtick line to itself, instead of
+  // swallowing every line through EOF (the previous, buggy behavior).
+  const pairedCount = fenceIndices.length - (fenceIndices.length % 2);
+  const pairedMarkers = new Set(fenceIndices.slice(0, pairedCount));
+  const strayMarker = fenceIndices.length % 2 === 1 ? fenceIndices[fenceIndices.length - 1] : -1;
+
   const kept: string[] = [];
   let inFence = false;
-  for (const line of lines) {
-    if (/^```/.test(line)) {
+  for (let i = 0; i < lines.length; i++) {
+    if (pairedMarkers.has(i)) {
       inFence = !inFence;
       continue;
     }
-    if (!inFence) kept.push(line);
+    if (i === strayMarker) continue; // drop the orphan marker line itself, nothing else
+    if (!inFence) kept.push(lines[i]);
   }
   return kept.join('\n');
 }
@@ -86,13 +105,30 @@ function collapseLists(text: string): string {
   return out.join('\n');
 }
 
-function keepFirstAndLastParagraph(text: string): string {
+function paragraphHasListItems(paragraph: string): boolean {
+  return paragraph.split('\n').some((line) => LIST_ITEM.test(line));
+}
+
+/**
+ * Keeps the first paragraph, the last paragraph, and any middle paragraph
+ * that carries list items. Dropping the middle is meant to cut rambling
+ * prose, not the payload: a list is the answer itself (collapseLists has
+ * already capped it at 3 items + "and N more"), so a list-bearing middle
+ * paragraph survives even though ordinary prose paragraphs around it don't.
+ * Runs after collapseLists, whose surviving item lines still carry their
+ * `- ` / `1. ` markers, which is what LIST_ITEM detects here.
+ */
+function keepStructuralParagraphs(text: string): string {
   const paragraphs = text
     .split(/\n{2,}/)
     .map((p) => p.trim())
     .filter((p) => p.length > 0);
   if (paragraphs.length <= 2) return paragraphs.join('\n\n');
-  return [paragraphs[0], paragraphs[paragraphs.length - 1]].join('\n\n');
+
+  const first = paragraphs[0];
+  const last = paragraphs[paragraphs.length - 1];
+  const middleWithLists = paragraphs.slice(1, -1).filter(paragraphHasListItems);
+  return [first, ...middleWithLists, last].join('\n\n');
 }
 
 function truncate(text: string, maxChars: number): string {
@@ -111,7 +147,13 @@ function truncate(text: string, maxChars: number): string {
   const lastSpace = window.lastIndexOf(' ');
   if (lastSpace > 0) return window.slice(0, lastSpace).trim() + ' ';
 
-  return window;
+  // No sentence or word boundary exists anywhere within the budget: the
+  // window is one unbroken token (URL, hash, base64, ...). There is no
+  // substring of it that is both within maxChars and word-safe, and the
+  // spec forbids a mid-word cut outright. Dropping it is a deliberate
+  // choice over silently mangling it — an unreadable fragment is worse
+  // than nothing for text headed to speech.
+  return '';
 }
 
 /**
@@ -123,6 +165,6 @@ export function heuristicCondense(raw: string, maxChars: number): string {
   let result = stripCodeFences(raw);
   result = stripTables(result);
   result = collapseLists(result);
-  result = keepFirstAndLastParagraph(result);
+  result = keepStructuralParagraphs(result);
   return truncate(result.trim(), maxChars);
 }

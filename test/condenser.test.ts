@@ -103,4 +103,40 @@ describe('heuristicCondense', () => {
     const raw = '| File | Status |\n|---|---|\n| a.ts | ok |\n';
     expect(heuristicCondense(raw, 500).trim()).toBe('');
   });
+
+  // Regression: a list sandwiched between an intro and a closing paragraph
+  // used to be treated as "the middle paragraph" and dropped entirely,
+  // taking the collapsed "and N more" note with it — destroying the exact
+  // structured content that triggered condensation in the first place.
+  it('keeps a list paragraph sandwiched between two prose paragraphs', () => {
+    const raw =
+      "Here's what I did:\n\n- item1\n- item2\n- item3\n- item4\n- item5\n\nLet me know if you have questions.";
+    const out = heuristicCondense(raw, 500);
+    expect(out).toContain('item1');
+    expect(out).toContain('item3');
+    expect(out).not.toContain('item5');
+    expect(out).toContain('and 2 more');
+    expect(out).toContain("Here's what I did:");
+    expect(out).toContain('Let me know if you have questions.');
+  });
+
+  // Regression: an unclosed code fence used to toggle inFence permanently,
+  // silently swallowing everything after it through end of input.
+  it('does not swallow trailing content when a code fence is never closed', () => {
+    const raw =
+      'Intro text.\n\n```\ncode that never closes\nmore code\nImportant trailing sentence that should survive.';
+    const out = heuristicCondense(raw, 500);
+    expect(out).toContain('Intro text.');
+    expect(out).toContain('Important trailing sentence that should survive.');
+    expect(out).not.toContain('```');
+  });
+
+  // Regression: when the truncation window contained no space at all (one
+  // unbroken token), the fallback fell through to a raw slice, cutting
+  // mid-word in violation of "never mid-word."
+  it('never emits a mid-word cut when the window has no boundary at all', () => {
+    const out = heuristicCondense('a'.repeat(60), 20);
+    expect(out.length).toBeLessThanOrEqual(20);
+    expect(out).not.toMatch(/\w$/);
+  });
 });
