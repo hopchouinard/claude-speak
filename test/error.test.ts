@@ -63,3 +63,28 @@ describe('handleError', () => {
     expect(() => handleError(new Error('test'), '/tmp/voice.log')).not.toThrow();
   });
 });
+
+describe('logWarning', () => {
+  beforeEach(() => {
+    vi.mocked(fs.mkdirSync).mockReturnValue(undefined);
+    vi.mocked(fs.appendFileSync).mockReturnValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('writes a WARN line and never plays a sound', async () => {
+    vi.mocked(fs.mkdirSync).mockReturnValue(undefined);
+    vi.mocked(fs.appendFileSync).mockReturnValue(undefined);
+    const { logWarning } = await import('../src/error.js');
+
+    logWarning('summarizer timed out', '/tmp/voice.log');
+
+    expect(fs.appendFileSync).toHaveBeenCalledWith(
+      '/tmp/voice.log',
+      expect.stringContaining('WARN: summarizer timed out'),
+    );
+    expect(child_process.spawnSync).not.toHaveBeenCalled();
+  });
+});

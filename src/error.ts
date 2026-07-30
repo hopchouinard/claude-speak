@@ -24,3 +24,17 @@ export function handleError(error: unknown, logFile: string): void {
     // If beep fails, nothing more we can do
   }
 }
+
+/**
+ * Log a non-fatal warning. Unlike handleError, this never plays a sound:
+ * summarizer fallbacks are routine and must not beep at the user.
+ */
+export function logWarning(message: string, logFile: string): void {
+  try {
+    const timestamp = new Date().toISOString();
+    fs.mkdirSync(path.dirname(logFile), { recursive: true });
+    fs.appendFileSync(logFile, `[${timestamp}] WARN: ${message}\n`);
+  } catch {
+    // Logging is best effort.
+  }
+}
