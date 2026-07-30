@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { VoiceConfig } from '../src/config.js';
-import type { SessionState } from '../src/session.js';
 import type { VoiceCacheEntry } from '../src/voice-cache.js';
+import * as session from '../src/session.js';
+import * as player from '../src/player.js';
 
 // Mock all dependencies
 vi.mock('../src/config.js');
 vi.mock('../src/session.js');
+vi.mock('../src/player.js');
 vi.mock('../src/voice-cache.js');
 vi.mock('node:fs');
 vi.mock('node:os');
@@ -21,6 +23,11 @@ function makeConfig(overrides: Partial<VoiceConfig> = {}): VoiceConfig {
     apiKeys: { openai: 'sk-test-key', elevenlabs: 'el-test-key' },
     hooks: { stop: true, notification: true },
     playback: { command: 'afplay' },
+    speech: {
+      maxChars: 500,
+      condense: true,
+      summarizer: { model: 'gpt-5.4-nano-2026-03-17', timeout: 8, maxWords: 40 },
+    },
     cooldown: 15,
     timeout: 30,
     logFile: '/mock/home/.claude-speak/logs/voice.log',
@@ -31,8 +38,6 @@ function makeConfig(overrides: Partial<VoiceConfig> = {}): VoiceConfig {
 describe('subcommand dispatcher', () => {
   let mockLoadConfig: ReturnType<typeof vi.fn>;
   let mockGetConfigPath: ReturnType<typeof vi.fn>;
-  let mockLoadSession: ReturnType<typeof vi.fn>;
-  let mockWriteSession: ReturnType<typeof vi.fn>;
   let mockReadCache: ReturnType<typeof vi.fn>;
   let mockWriteCache: ReturnType<typeof vi.fn>;
   let mockResolveVoiceName: ReturnType<typeof vi.fn>;
@@ -46,10 +51,6 @@ describe('subcommand dispatcher', () => {
     mockLoadConfig = vi.mocked(configMod.loadConfig);
     mockGetConfigPath = vi.mocked(configMod.getConfigPath);
     mockGetConfigPath.mockReturnValue('/mock/home/.claude-speak.json');
-
-    const sessionMod = await import('../src/session.js');
-    mockLoadSession = vi.mocked(sessionMod.loadSession);
-    mockWriteSession = vi.mocked(sessionMod.writeSession);
 
     const cacheMod = await import('../src/voice-cache.js');
     mockReadCache = vi.mocked(cacheMod.readCache);
@@ -69,26 +70,6 @@ describe('subcommand dispatcher', () => {
     vi.restoreAllMocks();
   });
 
-  describe('mute', () => {
-    it('writes muted state and returns speak: false', async () => {
-      const { dispatch } = await import('../src/subcommands.js');
-      const result = await dispatch('mute', []);
-      expect(mockWriteSession).toHaveBeenCalledWith({ muted: true });
-      expect(result.speak).toBe(false);
-      expect(result.message).toContain('muted');
-    });
-  });
-
-  describe('unmute', () => {
-    it('clears muted state and returns speak: true', async () => {
-      const { dispatch } = await import('../src/subcommands.js');
-      const result = await dispatch('unmute', []);
-      expect(mockWriteSession).toHaveBeenCalledWith({ muted: false });
-      expect(result.speak).toBe(true);
-      expect(result.message).toContain('unmuted');
-    });
-  });
-
   describe('provider', () => {
     it('switches to a valid provider with API key', async () => {
       const config = makeConfig();
@@ -101,7 +82,7 @@ describe('subcommand dispatcher', () => {
       mockFs.writeFileSync.mockReturnValue(undefined);
 
       const { dispatch } = await import('../src/subcommands.js');
-      const result = await dispatch('provider', ['elevenlabs']);
+      const result = await dispatch('provider', ['elevenlabs'], 'sess-1');
       expect(result.error).toBeUndefined();
       expect(result.message).toContain('elevenlabs');
 
@@ -114,7 +95,7 @@ describe('subcommand dispatcher', () => {
       mockLoadConfig.mockReturnValue(config);
 
       const { dispatch } = await import('../src/subcommands.js');
-      const result = await dispatch('provider', ['elevenlabs']);
+      const result = await dispatch('provider', ['elevenlabs'], 'sess-1');
       expect(result.error).toBe(true);
       expect(result.message).toContain('ELEVENLABS_API_KEY');
     });
@@ -123,7 +104,7 @@ describe('subcommand dispatcher', () => {
       mockLoadConfig.mockReturnValue(makeConfig());
 
       const { dispatch } = await import('../src/subcommands.js');
-      const result = await dispatch('provider', ['azure']);
+      const result = await dispatch('provider', ['azure'], 'sess-1');
       expect(result.error).toBe(true);
       expect(result.message).toContain('openai');
       expect(result.message).toContain('elevenlabs');
@@ -141,7 +122,7 @@ describe('subcommand dispatcher', () => {
       mockFs.writeFileSync.mockReturnValue(undefined);
 
       const { dispatch } = await import('../src/subcommands.js');
-      const result = await dispatch('speed', ['1.5']);
+      const result = await dispatch('speed', ['1.5'], 'sess-1');
       expect(result.error).toBeUndefined();
       expect(result.message).toContain('1.5');
 
@@ -153,7 +134,7 @@ describe('subcommand dispatcher', () => {
       mockLoadConfig.mockReturnValue(makeConfig());
 
       const { dispatch } = await import('../src/subcommands.js');
-      const result = await dispatch('speed', ['5.0']);
+      const result = await dispatch('speed', ['5.0'], 'sess-1');
       expect(result.error).toBe(true);
       expect(result.message).toContain('0.25');
       expect(result.message).toContain('4.0');
@@ -163,7 +144,7 @@ describe('subcommand dispatcher', () => {
       mockLoadConfig.mockReturnValue(makeConfig());
 
       const { dispatch } = await import('../src/subcommands.js');
-      const result = await dispatch('speed', ['fast']);
+      const result = await dispatch('speed', ['fast'], 'sess-1');
       expect(result.error).toBe(true);
     });
   });
@@ -179,7 +160,7 @@ describe('subcommand dispatcher', () => {
       mockFs.writeFileSync.mockReturnValue(undefined);
 
       const { dispatch } = await import('../src/subcommands.js');
-      const result = await dispatch('voice', ['nova']);
+      const result = await dispatch('voice', ['nova'], 'sess-1');
       expect(result.error).toBeUndefined();
       expect(result.message).toContain('nova');
 
@@ -191,7 +172,7 @@ describe('subcommand dispatcher', () => {
       mockLoadConfig.mockReturnValue(makeConfig());
 
       const { dispatch } = await import('../src/subcommands.js');
-      const result = await dispatch('voice', ['siri']);
+      const result = await dispatch('voice', ['siri'], 'sess-1');
       expect(result.error).toBe(true);
       expect(result.message).toContain('siri');
     });
@@ -212,7 +193,7 @@ describe('subcommand dispatcher', () => {
       mockFs.writeFileSync.mockReturnValue(undefined);
 
       const { dispatch } = await import('../src/subcommands.js');
-      const result = await dispatch('voice', ['Rachel']);
+      const result = await dispatch('voice', ['Rachel'], 'sess-1');
       expect(result.error).toBeUndefined();
 
       const written = JSON.parse(mockFs.writeFileSync.mock.calls[0][1] as string);
@@ -233,7 +214,7 @@ describe('subcommand dispatcher', () => {
       mockFs.writeFileSync.mockReturnValue(undefined);
 
       const { dispatch } = await import('../src/subcommands.js');
-      const result = await dispatch('voice', ['raw-voice-id-123']);
+      const result = await dispatch('voice', ['raw-voice-id-123'], 'sess-1');
       expect(result.error).toBeUndefined();
 
       const written = JSON.parse(mockFs.writeFileSync.mock.calls[0][1] as string);
@@ -246,7 +227,7 @@ describe('subcommand dispatcher', () => {
       mockLoadConfig.mockReturnValue(makeConfig());
 
       const { dispatch } = await import('../src/subcommands.js');
-      const result = await dispatch('voices', []);
+      const result = await dispatch('voices', [], 'sess-1');
       expect(result.message).toContain('alloy');
       expect(result.message).toContain('shimmer');
       expect(result.message).toContain('verse');
@@ -264,7 +245,7 @@ describe('subcommand dispatcher', () => {
       mockWriteCache.mockReturnValue(undefined);
 
       const { dispatch } = await import('../src/subcommands.js');
-      const result = await dispatch('voices', []);
+      const result = await dispatch('voices', [], 'sess-1');
       expect(result.message).toContain('Rachel');
       expect(result.message).toContain('Adam');
       expect(mockWriteCache).toHaveBeenCalledWith(voices);
@@ -274,10 +255,10 @@ describe('subcommand dispatcher', () => {
   describe('status', () => {
     it('returns current state summary', async () => {
       mockLoadConfig.mockReturnValue(makeConfig());
-      mockLoadSession.mockReturnValue({ muted: false } as SessionState);
+      vi.mocked(session.isActive).mockReturnValue(false);
 
       const { dispatch } = await import('../src/subcommands.js');
-      const result = await dispatch('status', []);
+      const result = await dispatch('status', [], 'sess-1');
       expect(result.message).toContain('openai');
       expect(result.message).toContain('ash');
       expect(result.message).toContain('1');
@@ -290,7 +271,7 @@ describe('subcommand dispatcher', () => {
       mockLoadConfig.mockReturnValue(makeConfig());
 
       const { dispatch } = await import('../src/subcommands.js');
-      const result = await dispatch('test', []);
+      const result = await dispatch('test', [], 'sess-1');
       expect(result.speak).toBe(true);
       expect(result.message.length).toBeGreaterThan(0);
     });
@@ -299,11 +280,133 @@ describe('subcommand dispatcher', () => {
   describe('unknown command', () => {
     it('returns error with available commands', async () => {
       const { dispatch } = await import('../src/subcommands.js');
-      const result = await dispatch('foobar', []);
+      const result = await dispatch('foobar', [], 'sess-1');
       expect(result.error).toBe(true);
       expect(result.message).toContain('foobar');
       expect(result.message).toContain('mute');
       expect(result.message).toContain('unmute');
     });
+  });
+});
+
+describe('activation subcommands', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('on activates the resolved session', async () => {
+    const { dispatch } = await import('../src/subcommands.js');
+    const result = await dispatch('on', [], 'sess-1');
+    expect(session.activate).toHaveBeenCalledWith('sess-1');
+    expect(result.error).toBeFalsy();
+  });
+
+  it('on reports an error and does not activate when the session id is unknown', async () => {
+    const { dispatch } = await import('../src/subcommands.js');
+    const result = await dispatch('on', [], null);
+    expect(result.error).toBe(true);
+    expect(session.activate).not.toHaveBeenCalled();
+  });
+
+  it('off deactivates the session', async () => {
+    const { dispatch } = await import('../src/subcommands.js');
+    await dispatch('off', [], 'sess-1');
+    expect(session.deactivate).toHaveBeenCalledWith('sess-1');
+  });
+
+  it('off succeeds without error when the session id is unknown', async () => {
+    const { dispatch } = await import('../src/subcommands.js');
+    const result = await dispatch('off', [], null);
+    expect(result.error).toBeFalsy();
+    expect(session.deactivate).not.toHaveBeenCalled();
+  });
+
+  it('mute is an alias for off', async () => {
+    const { dispatch } = await import('../src/subcommands.js');
+    await dispatch('mute', [], 'sess-1');
+    expect(session.deactivate).toHaveBeenCalledWith('sess-1');
+  });
+
+  it('unmute is an alias for on', async () => {
+    const { dispatch } = await import('../src/subcommands.js');
+    await dispatch('unmute', [], 'sess-1');
+    expect(session.activate).toHaveBeenCalledWith('sess-1');
+  });
+
+  it('on requests a spoken confirmation, so the user hears that it worked', async () => {
+    const { dispatch } = await import('../src/subcommands.js');
+    const result = await dispatch('on', [], 'sess-1');
+    expect(result.speak).toBe(true);
+  });
+
+  it('off does not request speech', async () => {
+    const { dispatch } = await import('../src/subcommands.js');
+    const result = await dispatch('off', [], 'sess-1');
+    expect(result.speak).toBe(false);
+  });
+});
+
+describe('stop and turn-start subcommands', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('stop silences playback and never speaks', async () => {
+    const { dispatch } = await import('../src/subcommands.js');
+    const result = await dispatch('stop', [], 'sess-1');
+    expect(player.stopPlayback).toHaveBeenCalled();
+    expect(result.speak).toBe(false);
+  });
+
+  it('stop works even when the session id is unknown', async () => {
+    const { dispatch } = await import('../src/subcommands.js');
+    const result = await dispatch('stop', [], null);
+    expect(player.stopPlayback).toHaveBeenCalled();
+    expect(result.error).toBeFalsy();
+  });
+
+  it('turn-start silences playback and clears the turn flag', async () => {
+    const { dispatch } = await import('../src/subcommands.js');
+    await dispatch('turn-start', [], 'sess-1');
+    expect(player.stopPlayback).toHaveBeenCalled();
+    expect(session.setSpokeThisTurn).toHaveBeenCalledWith('sess-1', false);
+  });
+
+  it('turn-start emits no output, so it cannot pollute the prompt', async () => {
+    const { dispatch } = await import('../src/subcommands.js');
+    const result = await dispatch('turn-start', [], 'sess-1');
+    expect(result.message).toBe('');
+    expect(result.speak).toBe(false);
+  });
+});
+
+describe('status output', () => {
+  beforeEach(async () => {
+    const configMod = await import('../src/config.js');
+    vi.mocked(configMod.loadConfig).mockReturnValue(makeConfig());
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('reports the session as active when it is', async () => {
+    vi.mocked(session.isActive).mockReturnValue(true);
+    const { dispatch } = await import('../src/subcommands.js');
+    const result = await dispatch('status', [], 'sess-1');
+    expect(result.message).toContain('Voice: active');
+  });
+
+  it('reports the session as off when inactive', async () => {
+    vi.mocked(session.isActive).mockReturnValue(false);
+    const { dispatch } = await import('../src/subcommands.js');
+    const result = await dispatch('status', [], 'sess-1');
+    expect(result.message).toContain('Voice: off');
+  });
+
+  it('reports an unresolved session id explicitly', async () => {
+    const { dispatch } = await import('../src/subcommands.js');
+    const result = await dispatch('status', [], null);
+    expect(result.message).toContain('Session: unknown');
   });
 });

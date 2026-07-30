@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import { loadConfig, getConfigPath, PROVIDER_DEFAULTS } from './config.js';
-import { loadSession, writeSession } from './session.js';
+import { activate, deactivate, isActive, setSpokeThisTurn } from './session.js';
+import { stopPlayback } from './player.js';
 import { readCache, fetchElevenLabsVoices, writeCache, resolveVoiceName } from './voice-cache.js';
 
 export interface SubcommandResult {
@@ -17,7 +18,9 @@ const OPENAI_VOICES = [
 
 const SUPPORTED_PROVIDERS = ['openai', 'elevenlabs'];
 
-const AVAILABLE_COMMANDS = ['mute', 'unmute', 'provider', 'speed', 'voice', 'voices', 'status', 'test'];
+const AVAILABLE_COMMANDS = [
+  'on', 'off', 'mute', 'unmute', 'provider', 'speed', 'voice', 'voices', 'status', 'test',
+];
 
 const ENV_VAR_MAP: Record<string, string> = {
   openai: 'OPENAI_API_KEY',
@@ -37,14 +40,34 @@ function updateConfigFile(updater: (config: Record<string, unknown>) => void): v
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
 }
 
-async function handleMute(): Promise<SubcommandResult> {
-  writeSession({ muted: true });
-  return { message: 'Voice output muted for this session.', speak: false };
+async function handleOn(sessionId: string | null): Promise<SubcommandResult> {
+  if (!sessionId) {
+    return {
+      message:
+        'Cannot determine the current session. Voice not activated. ' +
+        'This usually means CLAUDE_CODE_SESSION_ID is unavailable — try restarting Claude Code.',
+      speak: false,
+      error: true,
+    };
+  }
+  activate(sessionId);
+  return { message: 'Voice output activated for this session.', speak: true };
 }
 
-async function handleUnmute(): Promise<SubcommandResult> {
-  writeSession({ muted: false });
-  return { message: 'Voice output unmuted.', speak: true };
+async function handleOff(sessionId: string | null): Promise<SubcommandResult> {
+  if (sessionId) deactivate(sessionId);
+  return { message: 'Voice output off for this session.', speak: false };
+}
+
+async function handleStop(): Promise<SubcommandResult> {
+  stopPlayback();
+  return { message: '', speak: false };
+}
+
+async function handleTurnStart(sessionId: string | null): Promise<SubcommandResult> {
+  stopPlayback();
+  if (sessionId) setSpokeThisTurn(sessionId, false);
+  return { message: '', speak: false };
 }
 
 async function handleProvider(args: string[]): Promise<SubcommandResult> {
@@ -215,17 +238,18 @@ async function handleVoices(): Promise<SubcommandResult> {
   };
 }
 
-async function handleStatus(): Promise<SubcommandResult> {
+async function handleStatus(sessionId: string | null): Promise<SubcommandResult> {
   const config = loadConfig();
-  const session = loadSession();
   const provider = config.activeProvider;
   const providerConfig = config.providers[provider];
 
   const lines = [
+    `Session: ${sessionId ?? 'unknown'}`,
+    `Voice: ${isActive(sessionId) ? 'active' : 'off'}`,
     `Provider: ${provider}`,
-    `Voice: ${providerConfig?.voice ?? '(not set)'}`,
+    `Voice name: ${providerConfig?.voice ?? '(not set)'}`,
     `Speed: ${providerConfig?.speed ?? 1.0}`,
-    `Muted: ${session.muted ? 'yes' : 'no'}`,
+    `Condense: ${config.speech.condense} (over ${config.speech.maxChars} chars)`,
     `Hooks: stop=${config.hooks.stop}, notification=${config.hooks.notification}`,
   ];
 
@@ -245,12 +269,22 @@ async function handleTest(): Promise<SubcommandResult> {
   };
 }
 
-export async function dispatch(cmd: string, args: string[]): Promise<SubcommandResult> {
+export async function dispatch(
+  cmd: string,
+  args: string[],
+  sessionId: string | null,
+): Promise<SubcommandResult> {
   switch (cmd) {
-    case 'mute':
-      return handleMute();
+    case 'on':
     case 'unmute':
-      return handleUnmute();
+      return handleOn(sessionId);
+    case 'off':
+    case 'mute':
+      return handleOff(sessionId);
+    case 'stop':
+      return handleStop();
+    case 'turn-start':
+      return handleTurnStart(sessionId);
     case 'provider':
       return handleProvider(args);
     case 'speed':
@@ -260,7 +294,7 @@ export async function dispatch(cmd: string, args: string[]): Promise<SubcommandR
     case 'voices':
       return handleVoices();
     case 'status':
-      return handleStatus();
+      return handleStatus(sessionId);
     case 'test':
       return handleTest();
     default:
