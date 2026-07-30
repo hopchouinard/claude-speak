@@ -309,12 +309,14 @@ The Stop hook resetting the flag unconditionally, whether or not it suppressed, 
 
 ### What happens to `cooldown`
 
-`cooldown` and `lock.ts` are retained, with one of their two jobs removed:
+`cooldown` and `lock.ts` are retained with their scope narrowed to notification triggers only:
 
-- **Kept:** rate-limiting consecutive `--say` calls, so Claude cannot machine-gun multiple active-voice messages in a single turn.
-- **Removed:** deciding whether the Stop hook should speak. That moves to `spokeThisTurn`.
+- **Kept:** suppressing `--trigger notification` speech shortly after active voice. Notifications are not turn-scoped — several can fire within a single turn — so an elapsed-time rate limiter is the right mechanism there, and `spokeThisTurn` is not.
+- **Removed:** deciding whether `--trigger stop` should speak. That moves to `spokeThisTurn`, which is exact.
 
-Two concerns currently conflated in a single timestamp are now separated, each handled by the mechanism suited to it.
+Note on current behavior: the `--say` path calls `writeLock()` but never `isLocked()`, so consecutive active-voice calls are not rate-limited today. That remains true after this change. Adding such a limit is out of scope — no observed problem motivates it, and Claude issuing several active-voice calls in one turn is already discouraged by the skill guidance.
+
+`lock.ts` itself is unmodified; only its caller's use of it narrows.
 
 ### Known limitation
 
