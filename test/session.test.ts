@@ -5,85 +5,188 @@ import * as os from 'node:os';
 vi.mock('node:fs');
 vi.mock('node:os');
 
-describe('session state', () => {
-  const mockHome = '/mock/home';
-  const sessionPath = '/mock/home/.claude-speak/session.json';
+const HOME = '/mock/home';
+const SESSIONS = '/mock/home/.claude-speak/sessions';
+const ID = 'abc-123';
+const FILE = `${SESSIONS}/abc-123.json`;
+const LEGACY = '/mock/home/.claude-speak/session.json';
 
+function stateFile(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({ active: true, activatedAt: 1000, spokeThisTurn: false, ...overrides });
+}
+
+describe('session state', () => {
   beforeEach(() => {
-    vi.spyOn(os, 'homedir').mockReturnValue(mockHome);
+    vi.spyOn(os, 'homedir').mockReturnValue(HOME);
+    delete process.env.CLAUDE_CODE_SESSION_ID;
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
     vi.resetModules();
+    delete process.env.CLAUDE_CODE_SESSION_ID;
   });
 
-  describe('loadSession', () => {
-    it('returns defaults when session file does not exist', async () => {
+  describe('resolveSessionId', () => {
+    it('prefers session_id from hook stdin over the environment', async () => {
+      process.env.CLAUDE_CODE_SESSION_ID = 'from-env';
+      const { resolveSessionId } = await import('../src/session.js');
+      expect(resolveSessionId(JSON.stringify({ session_id: 'from-stdin' }))).toBe('from-stdin');
+    });
+
+    it('falls back to CLAUDE_CODE_SESSION_ID when stdin is absent', async () => {
+      process.env.CLAUDE_CODE_SESSION_ID = 'from-env';
+      const { resolveSessionId } = await import('../src/session.js');
+      expect(resolveSessionId()).toBe('from-env');
+    });
+
+    it('falls back to the environment when stdin is not valid JSON', async () => {
+      process.env.CLAUDE_CODE_SESSION_ID = 'from-env';
+      const { resolveSessionId } = await import('../src/session.js');
+      expect(resolveSessionId('not json{{{')).toBe('from-env');
+    });
+
+    it('returns null when neither source provides an id', async () => {
+      const { resolveSessionId } = await import('../src/session.js');
+      expect(resolveSessionId('{}')).toBeNull();
+    });
+  });
+
+  describe('isActive', () => {
+    it('returns false when no session file exists', async () => {
       vi.mocked(fs.existsSync).mockReturnValue(false);
-      const { loadSession } = await import('../src/session.js');
-      const state = loadSession();
-      expect(state.muted).toBe(false);
+      const { isActive } = await import('../src/session.js');
+      expect(isActive(ID)).toBe(false);
     });
 
-    it('reads muted state from session file', async () => {
+    it('returns true when the session file marks it active', async () => {
       vi.mocked(fs.existsSync).mockReturnValue(true);
-      vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ muted: true }));
-      const { loadSession } = await import('../src/session.js');
-      const state = loadSession();
-      expect(state.muted).toBe(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(stateFile());
+      const { isActive } = await import('../src/session.js');
+      expect(isActive(ID)).toBe(true);
     });
 
-    it('returns defaults when muted field is not a boolean', async () => {
-      vi.mocked(fs.existsSync).mockReturnValue(true);
-      vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ muted: 'yes' }));
-      vi.mocked(fs.unlinkSync).mockReturnValue(undefined);
-      const { loadSession } = await import('../src/session.js');
-      const state = loadSession();
-      expect(state.muted).toBe(false);
-      expect(fs.unlinkSync).toHaveBeenCalledWith(sessionPath);
+    it('returns false for a null session id without touching the filesystem', async () => {
+      const { isActive } = await import('../src/session.js');
+      expect(isActive(null)).toBe(false);
+      expect(fs.existsSync).not.toHaveBeenCalled();
     });
 
-    it('deletes corrupted session file and returns defaults', async () => {
+    it('deletes a corrupt session file and reports inactive', async () => {
       vi.mocked(fs.existsSync).mockReturnValue(true);
-      vi.mocked(fs.readFileSync).mockReturnValue('not valid json{{{');
-      vi.mocked(fs.unlinkSync).mockReturnValue(undefined);
-      const { loadSession } = await import('../src/session.js');
-      const state = loadSession();
-      expect(state.muted).toBe(false);
-      expect(fs.unlinkSync).toHaveBeenCalledWith(sessionPath);
+      vi.mocked(fs.readFileSync).mockReturnValue('not json{{{');
+      const { isActive } = await import('../src/session.js');
+      expect(isActive(ID)).toBe(false);
+      expect(fs.unlinkSync).toHaveBeenCalledWith(FILE);
+    });
+
+    it('isolates sessions from each other', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((p) => p === FILE);
+      vi.mocked(fs.readFileSync).mockReturnValue(stateFile());
+      const { isActive } = await import('../src/session.js');
+      expect(isActive(ID)).toBe(true);
+      expect(isActive('other-session')).toBe(false);
     });
   });
 
-  describe('writeSession', () => {
-    it('writes session state to file', async () => {
-      vi.mocked(fs.mkdirSync).mockReturnValue(undefined);
-      vi.mocked(fs.writeFileSync).mockReturnValue(undefined);
-      const { writeSession } = await import('../src/session.js');
-      writeSession({ muted: true });
-      expect(fs.mkdirSync).toHaveBeenCalledWith('/mock/home/.claude-speak', { recursive: true });
-      expect(fs.writeFileSync).toHaveBeenCalledWith(
-        sessionPath,
-        JSON.stringify({ muted: true }, null, 2),
-        'utf-8',
-      );
+  describe('activate / deactivate', () => {
+    it('creates the sessions directory and writes an active state', async () => {
+      const { activate } = await import('../src/session.js');
+      activate(ID);
+      expect(fs.mkdirSync).toHaveBeenCalledWith(SESSIONS, { recursive: true });
+      const [writtenPath, contents] = vi.mocked(fs.writeFileSync).mock.calls[0];
+      expect(writtenPath).toBe(FILE);
+      const parsed = JSON.parse(contents as string);
+      expect(parsed.active).toBe(true);
+      expect(parsed.spokeThisTurn).toBe(false);
+      expect(typeof parsed.activatedAt).toBe('number');
     });
-  });
 
-  describe('clearSession', () => {
-    it('deletes session file if it exists', async () => {
+    it('deletes the session file on deactivate', async () => {
       vi.mocked(fs.existsSync).mockReturnValue(true);
-      vi.mocked(fs.unlinkSync).mockReturnValue(undefined);
-      const { clearSession } = await import('../src/session.js');
-      clearSession();
-      expect(fs.unlinkSync).toHaveBeenCalledWith(sessionPath);
+      const { deactivate } = await import('../src/session.js');
+      deactivate(ID);
+      expect(fs.unlinkSync).toHaveBeenCalledWith(FILE);
     });
 
-    it('does nothing if session file does not exist', async () => {
+    it('deactivate is a no-op when no file exists', async () => {
       vi.mocked(fs.existsSync).mockReturnValue(false);
-      const { clearSession } = await import('../src/session.js');
-      clearSession();
+      const { deactivate } = await import('../src/session.js');
+      deactivate(ID);
       expect(fs.unlinkSync).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('spokeThisTurn', () => {
+    it('is a no-op when the session file does not exist', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      const { setSpokeThisTurn } = await import('../src/session.js');
+      setSpokeThisTurn(ID, true);
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+    });
+
+    it('sets the flag while preserving activatedAt', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(stateFile({ activatedAt: 4242 }));
+      const { setSpokeThisTurn } = await import('../src/session.js');
+      setSpokeThisTurn(ID, true);
+      const parsed = JSON.parse(vi.mocked(fs.writeFileSync).mock.calls[0][1] as string);
+      expect(parsed.spokeThisTurn).toBe(true);
+      expect(parsed.activatedAt).toBe(4242);
+    });
+
+    it('consume returns true and resets the flag', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(stateFile({ spokeThisTurn: true }));
+      const { consumeSpokeThisTurn } = await import('../src/session.js');
+      expect(consumeSpokeThisTurn(ID)).toBe(true);
+      const parsed = JSON.parse(vi.mocked(fs.writeFileSync).mock.calls[0][1] as string);
+      expect(parsed.spokeThisTurn).toBe(false);
+    });
+
+    it('consume returns false when the flag was already clear', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(stateFile({ spokeThisTurn: false }));
+      const { consumeSpokeThisTurn } = await import('../src/session.js');
+      expect(consumeSpokeThisTurn(ID)).toBe(false);
+    });
+
+    it('consume returns false when no session file exists', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      const { consumeSpokeThisTurn } = await import('../src/session.js');
+      expect(consumeSpokeThisTurn(ID)).toBe(false);
+    });
+  });
+
+  describe('gcSessions', () => {
+    it('removes stale session files and keeps fresh ones', async () => {
+      const now = Date.now();
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readdirSync).mockReturnValue(['stale.json', 'fresh.json'] as never);
+      vi.mocked(fs.statSync).mockImplementation((p) => ({
+        mtimeMs: String(p).includes('stale') ? now - 48 * 3600 * 1000 : now,
+      }) as fs.Stats);
+
+      const { gcSessions } = await import('../src/session.js');
+      gcSessions();
+
+      expect(fs.unlinkSync).toHaveBeenCalledWith(`${SESSIONS}/stale.json`);
+      expect(fs.unlinkSync).not.toHaveBeenCalledWith(`${SESSIONS}/fresh.json`);
+    });
+
+    it('removes the legacy 1.x session.json without migrating it', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readdirSync).mockReturnValue([] as never);
+      const { gcSessions } = await import('../src/session.js');
+      gcSessions();
+      expect(fs.unlinkSync).toHaveBeenCalledWith(LEGACY);
+    });
+
+    it('does nothing when the sessions directory is absent', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      const { gcSessions } = await import('../src/session.js');
+      expect(() => gcSessions()).not.toThrow();
+      expect(fs.readdirSync).not.toHaveBeenCalled();
     });
   });
 });
