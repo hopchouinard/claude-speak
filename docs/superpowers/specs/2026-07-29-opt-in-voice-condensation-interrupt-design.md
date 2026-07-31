@@ -1,7 +1,7 @@
 # Opt-In Voice, Speech Condensation & Interrupt Design
 
 **Date:** 2026-07-29
-**Status:** Draft
+**Status:** Implemented (revised 2026-07-30 after whole-branch review — see §1 activation across compaction, §2 summarizer key and empty-condensation, §3 stop scoping)
 **Version target:** 2.0.0 (breaking change)
 **Scope:** Three features for the claude-speak plugin: (1) voice output becomes opt-in per session instead of globally on, (2) verbose or table-heavy output is condensed into speech-optimized text before TTS, (3) in-flight narration can be interrupted. Plus a correctness fix to active/passive dedup that the third feature makes possible.
 
@@ -81,6 +81,13 @@ The existing `if (session.muted) return` check at `src/cli.ts:82` becomes `if (!
 - `scripts/check-setup.sh` stops deleting session state. The blanket `rm -f "$HOME/.claude-speak/session.json"` is removed; it is the direct cause of cross-session unmuting.
 - SessionStart instead garbage-collects `~/.claude-speak/sessions/*.json` older than 24 hours.
 - A legacy `~/.claude-speak/session.json` from 1.x is deleted by the same SessionStart GC step if present. It is not migrated: its semantics (global, default-audible) are the opposite of the new model, so carrying its value forward would produce exactly the wrong outcome.
+- `--cmd gc` runs **ahead of the `enabled` kill switch** in `cli.ts`. State accumulates whether or not voice is enabled, and this is the only thing that ever collects it; gating GC on `enabled` would leave a user who set it to `false` with state that grows forever and a legacy file that is never removed.
+
+### Activation across compaction and resume
+
+SessionStart fires on `startup`, `compact` and `resume`. A compacted or resumed session keeps the same `session_id`, so its activation state is still valid and voice **stays active** across all three. Activation has not leaked anywhere: it is the same session, and the alternative — deactivating on compaction — would silently turn voice off mid-task for a user who never asked for that.
+
+The consequence is that SessionStart cannot assume a silent session. See "Documentation consequences" below.
 
 ### Config reinterpretation
 
@@ -88,7 +95,19 @@ The existing `if (session.muted) return` check at `src/cli.ts:82` becomes `if (!
 
 ### Documentation consequences
 
-- SessionStart `additionalContext` must state that voice output is currently **off** and name the command to enable it. Without this, Claude writes final messages for the ear and considers active voice for output nobody will hear.
+- SessionStart `additionalContext` must state the session's **actual** voice state, not a fixed one. Without it, Claude writes final messages for the ear for output nobody will hear — or, on the compact/resume path, stops writing for the ear while the Stop hook is still speaking, which disables tier 1 of the condensation chain (§2) for the rest of the session.
+
+  `check-setup.sh` therefore reads the SessionStart payload from stdin, resolves `session_id`, and reports one of three states:
+
+  | State | Condition | Message |
+  |---|---|---|
+  | active | `~/.claude-speak/sessions/<id>.json` exists | Voice is on; write for the ear; speak your own summary before a long final message; `!shutup` interrupts. |
+  | off | id resolved, no state file | Voice is off; do not write for the ear or use the speak skill; `/speak on` activates. |
+  | unknown | no id resolvable (stdin empty, unparseable, or without `session_id`) | State could not be determined; run `/speak status` before assuming either way. |
+
+  The `unknown` state is deliberate. A confident wrong claim in either direction costs more than an admitted uncertainty, and the script must emit valid JSON and exit 0 on every path regardless.
+
+  Two implementation constraints follow: the payload must be captured before the `--cmd gc` call, which reads stdin to EOF and would otherwise consume it (gc is given `</dev/null`); and a `session_id` containing anything outside `[A-Za-z0-9._-]` is treated as unresolvable rather than interpolated into a filesystem path.
 - This repository's `CLAUDE.md` opens by asserting voice output is enabled. That claim becomes conditional, describing the opt-in model instead.
 - `README.md` gains a breaking-change section for 2.0.0.
 
@@ -173,6 +192,8 @@ summarizeForSpeech(raw: string, config: VoiceConfig): Promise<string | null>
 - Provider: OpenAI, via raw `fetch` to the chat completions endpoint. No new dependencies.
 - Model default: `gpt-5.4-nano-2026-03-17`, read from config rather than hardcoded.
 - API key: reuses `config.apiKeys.openai`. No new credential is introduced.
+
+  Consequence: this tier requires an **OpenAI** key specifically, whatever the active TTS provider is. An ElevenLabs-only user — a fully supported configuration — never reaches tier 2 and always lands on tier 3. That is acceptable (tier 3 is deterministic and offline) but it must be documented in the README rather than discovered, and it is what makes the empty-condensation case below routinely reachable rather than exotic.
 - Timeout: `AbortController`, default 8 seconds.
 - Returns `null` on **any** failure — missing key, non-200, timeout, malformed response, empty content. Never throws to the caller.
 
@@ -181,6 +202,12 @@ System prompt:
 > Rewrite this message to be heard, not read. Two sentences maximum, under 40 words. State the outcome and the single number that matters most. No markdown, no file paths, no lists. If the input was a table of results, say how many there were and whether they passed.
 
 When `summarizeForSpeech` returns `null`, the caller falls back to `heuristicCondense` and logs the failure reason to `config.logFile`. Speech is never blocked by summarizer failure.
+
+### When the heuristic condenses to nothing
+
+`heuristicCondense` is extractive: it can only cut. A message that is *only* a table, or *only* a fenced code block, therefore strips to the empty string — and tier 4 of the chain must never be silence, which is what an empty string produces. 1.x read something aloud for those messages; going quiet reads as a broken plugin, and it emits a WARN line every turn on top.
+
+So an empty heuristic result is replaced with one short fixed line saying the message does not read aloud well and the detail is on screen. Fixed rather than generated: there is nothing left to summarize by that point, and a second network call to describe a message we already failed to condense is not worth the latency.
 
 ### Config addition
 
@@ -225,22 +252,37 @@ Playback state is **machine-global**, not per-session:
 
 ```
 ~/.claude-speak/playback.json   →  { "pid": 12345, "startedAt": 1785…, "sessionId": "…" }
-~/.claude-speak/stop-epoch      →  1785000000000
+~/.claude-speak/stop-epoch      →  { "epoch": 1785000000000, "sessionId": "…" | null }
 ```
 
-Rationale: there is one audio device. The user hearing unwanted narration cannot tell which window produced it, and `!shutup` must kill whatever is playing regardless of origin. A stop request from one session correctly discards another session's in-flight audio — the user asked the machine to be quiet.
+Rationale: there is one audio device. The user hearing unwanted narration cannot tell which window produced it, and `!shutup` must kill whatever is playing regardless of origin.
 
-This gives a clean boundary: **playback state is machine-global; activation and turn state are per-session.**
+**The kill is global; the discard is not.** These are two different operations and they need different scopes:
+
+- **SIGTERM of the audible stream** is always machine-wide. Silencing what is coming out of the speakers is exactly what the user asked for.
+- **Discarding audio that has not started playing yet** is scoped to the session that stamped the stop. That audio belongs to some other window's pipeline, which will drop the message and never retry it — the user of that window asked for nothing.
+
+`stop-epoch` therefore records the session that stamped it, and `readStopEpoch(sessionId)` reports `0` for a stop belonging to a different session. `sessionId: null` means an unattributed, deliberately global stop.
+
+| Trigger | Stamped as | Kills audible audio | Discards pending audio |
+|---|---|---|---|
+| `!shutup` (`--cmd stop`) | `sessionId: null` | machine-wide | every session — it is a panic button |
+| `UserPromptSubmit` (`--cmd turn-start`) | the submitting session | machine-wide | that session only |
+
+A bare-number `stop-epoch` (the pre-2.0.0 format) is read as a global stop.
+
+This gives the boundary: **the audio device is machine-global; the decision to throw away a message is per-session, as are activation and turn state.**
 
 ### `src/player.ts` changes
 
-- After `spawn`, write `playback.json` with the child PID.
+- Before `spawn`, SIGTERM any stream already tracked in `playback.json` and clear it. One audio device, one stream: spawning over a live stream would overwrite its PID and leave it unaddressable, so `!shutup` could only ever silence the newest one. This kill stamps **no** epoch, so it cannot discard anyone's pending audio.
+- After `spawn`, write `playback.json` with the child PID and the owning session id.
 - On child exit, delete `playback.json` in addition to the existing temp-file cleanup.
 - `child.unref()` is retained; the PID file is what makes the detached process addressable.
 
-### `stopPlayback()`
+### `stopPlayback(scopeSessionId)`
 
-1. Write `stop-epoch = Date.now()`.
+1. Write `stop-epoch = { epoch: Date.now(), sessionId: scopeSessionId }`.
 2. Read `playback.json`; if absent, done.
 3. `process.kill(pid, 'SIGTERM')`, swallowing `ESRCH` (process already exited).
 4. Delete `playback.json`.
@@ -251,9 +293,14 @@ Order matters: the epoch is stamped **first**, so a stop racing against a synthe
 
 Synthesis takes 1–2 seconds. A stop request arriving in that window kills a PID that does not yet exist, and audio begins *after* the user demanded silence. This is the failure mode that makes a naive PID-kill implementation feel broken.
 
-Fix: `cli.ts` captures `requestedAt = Date.now()` immediately before calling `synthesize()`. After synthesis returns, it reads `stop-epoch`; if `stopEpoch > requestedAt`, the audio buffer is discarded and never played. Deterministic, cheap, and closes the window completely.
+Fix: `cli.ts` captures `requestedAt = Date.now()`. After synthesis returns, it reads the stop epoch **for its own session**; if `stopEpoch > requestedAt`, the audio buffer is discarded and never played. Deterministic, cheap, and closes the window completely.
 
-This check applies to both the passive and active voice paths.
+This check applies to both the passive and active voice paths, and the two stamp positions differ deliberately:
+
+- `run()` (passive) stamps **before condensation**. The summarizer can block for seconds, and that window is widest exactly when the network is degraded — which is when the user is most likely to give up and hit stop.
+- `speakText()` (`--say`, subcommand confirmations) stamps **immediately before synthesis**. There is no condensation step on that path to cover.
+
+The guard is duplicated rather than extracted for this reason. Any future extraction must preserve both stamp positions, or one path loses part of its stop window; both call sites carry a comment saying so, and both are covered by tests.
 
 ### `bin/shutup`
 
@@ -280,7 +327,11 @@ The name `shutup` was chosen for absence of collision with system terminology.
 
 Hard constraints: no `sleep`, always exits 0, never blocks prompt submission.
 
-No false-suppression risk: the `stop-epoch` this hook stamps is always older than the `requestedAt` of the Stop hook it precedes, so it cannot discard the audio of the turn it begins.
+**Within one session** there is no false-suppression risk: the stop epoch this hook stamps is always older than the `requestedAt` of the Stop hook it precedes, so it cannot discard the audio of the turn it begins.
+
+That argument does **not** extend across sessions, and an earlier draft of this document wrongly implied it did. The epoch is machine-global state: window B submitting a prompt stamps an epoch newer than the `requestedAt` of a pipeline already in flight in window A. Window A's end-of-turn message would then fail its stop check and be discarded — never spoken, never retried — with an exposure of roughly ten seconds per narration (a 2s Stop-hook sleep plus up to 8s of condensation). Anyone running two Claude Code windows hits this routinely.
+
+This is why `turn-start` stamps a **session-scoped** stop (see "State layout" above) while `!shutup` stamps a global one. Prompt submission is an incidental byproduct of typing in one window; `!shutup` is a deliberate demand for machine-wide silence.
 
 ---
 
@@ -331,14 +382,14 @@ A subagent's Bash environment may carry the parent session ID. A subagent using 
 | `src/session.ts` | Rewritten. Per-session-ID state, default-off, `resolveSessionId()`, `isActive()`, `setActive()`, turn-flag accessors, GC of stale files. |
 | `src/condenser.ts` | **New.** `shouldCondense()`, `heuristicCondense()`. Pure, no I/O. |
 | `src/summarizer.ts` | **New.** `summarizeForSpeech()` via `fetch`. Returns `null` on any failure. |
-| `src/player.ts` | PID file write/clear, `stopPlayback()`, stop-epoch read/write. |
-| `src/cli.ts` | Activation gate replaces mute gate; condensation step on the passive path; `requestedAt`/stop-epoch race check. |
-| `src/subcommands.ts` | `on`, `off`, `stop`, `turn-start` handlers; `mute`/`unmute` aliases; `status` reports session activation and playback state. |
+| `src/player.ts` | PID file write/clear (with owning session), single-stream enforcement in `playAudio()`, `stopPlayback(scopeSessionId)`, session-scoped stop-epoch read/write, `readPlaybackState()`. |
+| `src/cli.ts` | Activation gate replaces mute gate; condensation step on the passive path; `requestedAt`/stop-epoch race check, scoped to the session; `gc` runs ahead of the `enabled` kill switch. |
+| `src/subcommands.ts` | `on`, `off`, `stop`, `turn-start`, `gc` handlers; `mute`/`unmute` aliases; `status` reports session activation and playback state. |
 | `src/config.ts` | `speech` config block with defaults; `enabled` reinterpreted as hard kill switch. |
 | `src/lock.ts` | Unchanged code, narrowed role (active-voice rate limiting only). |
 | `bin/shutup` | **New.** Executable shell wrapper. |
 | `hooks/hooks.json` | Add `UserPromptSubmit`. |
-| `scripts/check-setup.sh` | Remove session wipe; add stale-session GC; report voice-off state in `additionalContext`. |
+| `scripts/check-setup.sh` | Remove session wipe; add stale-session GC (fed `</dev/null` so it cannot eat the payload); report the session's real voice state — active / off / unknown — in `additionalContext`. |
 | `CLAUDE.md`, `README.md`, `skills/speak/SKILL.md` | Opt-in model, `!shutup`, tier-1 summary guidance, breaking-change notes. |
 | `claude-speak.example.json` | Add `speech` block. |
 
@@ -355,9 +406,13 @@ Every failure degrades rather than blocking.
 | Summarizer key missing / non-200 / timeout / malformed | Return `null`, fall back to `heuristicCondense`, log to `logFile`. |
 | `process.kill` on a dead PID | Swallow `ESRCH`. |
 | Corrupt session or playback JSON | Delete the file, treat as absent. Matches existing `session.ts:34` behavior. |
+| Session state write fails (EACCES, ENOSPC) | Swallow. Activation state is best-effort; every read path already treats a missing file as "voice off", and throwing would crash the calling hook. |
+| Heuristic condenses to the empty string | Speak the fixed fallback line (§2). Never fall through to silence. |
 | Missing `plugin-root` file in `bin/shutup` | Exit 0 silently. |
 | `UserPromptSubmit` hook error | Always exit 0. Never block prompt submission. |
-| Stop request during synthesis | Discard the audio buffer. Never play. |
+| Stop request during synthesis, same session | Discard the audio buffer. Never play. |
+| Stop request during synthesis, different session | Play. The kill was global; the discard is not (§3). |
+| SessionStart payload absent or unparseable | Report voice state as `unknown` and say so. Still emit valid JSON, still exit 0. |
 
 ---
 
@@ -371,12 +426,12 @@ New test files:
 Rewritten:
 
 - **`test/session.test.ts`** — default is off with no file present; two session IDs do not interfere; `resolveSessionId` precedence (stdin over env, `null` when neither); GC removes files older than 24h and preserves fresh ones; corrupt file is deleted and treated as absent; legacy `session.json` is removed rather than migrated.
-- **`test/player.test.ts`** — PID file written on spawn and cleared on exit; `stopPlayback` sends SIGTERM and stamps the epoch; stop-epoch is written before the kill; dead PID does not throw.
+- **`test/player.test.ts`** — PID file written on spawn (with its owning session) and cleared on exit; a live stream is killed before a new one spawns, and that kill stamps no epoch; `stopPlayback` sends SIGTERM and stamps the epoch; stop-epoch is written before the kill; dead PID does not throw; a stop stamped by another session is invisible to this one, while an unattributed or legacy bare-number stop is global; `readPlaybackState` reports pid, start time and owner.
 
 Extended:
 
-- **`test/cli.test.ts`** — an inactive session produces no speech on any trigger; `--cmd on` and `--cmd stop` both succeed while inactive; condensation runs for passive input over threshold, is skipped under it, and never runs on `--say`; audio synthesized before a stop request is discarded.
-- **`test/subcommands.test.ts`** — `on`/`off`/`stop`/`turn-start`; `mute`/`unmute` alias equivalence; `status` output includes activation and playback state.
+- **`test/cli.test.ts`** — an inactive session produces no speech on any trigger; `--cmd on` and `--cmd stop` both succeed while inactive; condensation runs for passive input over threshold, is skipped under it, and never runs on `--say`; an empty heuristic result speaks the fallback rather than nothing; audio synthesized before a stop request is discarded **on both the passive path and the `speakText` path** — the latter pins a guard that would otherwise be deletable with the suite still green; the stop check and `playAudio` both carry the session id; `gc` runs with `enabled: false`.
+- **`test/subcommands.test.ts`** — `on`/`off`/`stop`/`turn-start`/`gc`; `mute`/`unmute` alias equivalence; `stop` stamps a global stop and `turn-start` a session-scoped one; `status` output includes activation and playback state.
 
 `test/lock.test.ts` needs no changes. `lock.ts` code is untouched; only its caller's use of it narrows.
 
