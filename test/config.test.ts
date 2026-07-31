@@ -167,5 +167,63 @@ describe('loadConfig', () => {
       expect(config.speech.summarizer.model).toBe('gpt-5.4-nano-2026-03-17');
       expect(config.speech.summarizer.maxWords).toBe(40);
     });
+
+    function loadWithSpeech(speech: unknown) {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(
+        JSON.stringify({
+          activeProvider: 'openai',
+          providers: { openai: { model: 'm', voice: 'ash', speed: 1 } },
+          speech,
+        }),
+      );
+      return import('../src/config.js').then((m) => m.loadConfig());
+    }
+
+    // The documented way to disable condensation is `"condense": false`. A
+    // string "false" is not nullish, so `??` would keep it — and a non-empty
+    // string is truthy, leaving condensation ON for someone trying to turn it
+    // off. That is the failure this guards.
+    it('ignores a string "false" for condense rather than treating it as truthy', async () => {
+      const config = await loadWithSpeech({ condense: 'false' });
+      expect(config.speech.condense).toBe(true);
+    });
+
+    it('still honours a real boolean false for condense', async () => {
+      const config = await loadWithSpeech({ condense: false });
+      expect(config.speech.condense).toBe(false);
+    });
+
+    it('ignores a string maxChars and keeps the numeric default', async () => {
+      const config = await loadWithSpeech({ maxChars: '200' });
+      expect(config.speech.maxChars).toBe(500);
+      expect(typeof config.speech.maxChars).toBe('number');
+    });
+
+    it('ignores a NaN maxChars, which would make every threshold comparison false', async () => {
+      const config = await loadWithSpeech({ maxChars: Number.NaN });
+      expect(config.speech.maxChars).toBe(500);
+    });
+
+    it('ignores an empty-string summarizer model', async () => {
+      const config = await loadWithSpeech({ summarizer: { model: '' } });
+      expect(config.speech.summarizer.model).toBe('gpt-5.4-nano-2026-03-17');
+    });
+
+    it('ignores a non-object speech block instead of throwing', async () => {
+      const config = await loadWithSpeech('yes');
+      expect(config.speech.maxChars).toBe(500);
+      expect(config.speech.condense).toBe(true);
+    });
+
+    it('ignores an array speech block', async () => {
+      const config = await loadWithSpeech([]);
+      expect(config.speech.condense).toBe(true);
+    });
+
+    it('ignores a non-object summarizer block', async () => {
+      const config = await loadWithSpeech({ summarizer: 42 });
+      expect(config.speech.summarizer.timeout).toBe(8);
+    });
   });
 });

@@ -68,6 +68,33 @@ function detectPlaybackCommand(): string {
   return process.platform === 'darwin' ? 'afplay' : 'paplay';
 }
 
+/**
+ * Config values come from hand-edited JSON, so a field can hold any type.
+ * These pick the value only when it is actually the type we need, falling back
+ * to the default otherwise.
+ *
+ * A bare `??` is not enough: `"condense": "false"` is a string, which is not
+ * nullish, so `??` would keep it — and a non-empty string is truthy, so
+ * condensation would stay on for someone who was trying to turn it off.
+ */
+function pickBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback;
+}
+
+function pickNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function pickString(value: unknown, fallback: string): string {
+  return typeof value === 'string' && value.length > 0 ? value : fallback;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 function getSharedDefaults() {
   return {
     hooks: { stop: true, notification: true },
@@ -159,15 +186,15 @@ export function loadConfig(): VoiceConfig {
 
   const enabled = envEnabled !== undefined ? envEnabled === 'true' : true;
 
-  const rawSpeech = (fileConfig.speech as Record<string, unknown>) ?? {};
-  const rawSummarizer = (rawSpeech.summarizer as Record<string, unknown>) ?? {};
+  const rawSpeech = asRecord(fileConfig.speech);
+  const rawSummarizer = asRecord(rawSpeech.summarizer);
   const speech: SpeechConfig = {
-    maxChars: (rawSpeech.maxChars as number) ?? shared.speech.maxChars,
-    condense: (rawSpeech.condense as boolean) ?? shared.speech.condense,
+    maxChars: pickNumber(rawSpeech.maxChars, shared.speech.maxChars),
+    condense: pickBoolean(rawSpeech.condense, shared.speech.condense),
     summarizer: {
-      model: (rawSummarizer.model as string) ?? shared.speech.summarizer.model,
-      timeout: (rawSummarizer.timeout as number) ?? shared.speech.summarizer.timeout,
-      maxWords: (rawSummarizer.maxWords as number) ?? shared.speech.summarizer.maxWords,
+      model: pickString(rawSummarizer.model, shared.speech.summarizer.model),
+      timeout: pickNumber(rawSummarizer.timeout, shared.speech.summarizer.timeout),
+      maxWords: pickNumber(rawSummarizer.maxWords, shared.speech.summarizer.maxWords),
     },
   };
 

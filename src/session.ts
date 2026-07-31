@@ -19,6 +19,22 @@ export function getSessionPath(sessionId: string): string {
 }
 
 /**
+ * A session id becomes a filename, so it must not be able to steer the path.
+ * Anything containing a separator would escape the sessions directory on the
+ * read/write/unlink that follows.
+ *
+ * This is the same character class scripts/check-setup.sh applies to the id it
+ * reads from the SessionStart payload — the shell and this module must agree on
+ * what counts as a usable id, or they will disagree about whether a session is
+ * active. Keep the two in step.
+ */
+const VALID_SESSION_ID = /^[A-Za-z0-9._-]+$/;
+
+function asValidSessionId(value: unknown): string | null {
+  return typeof value === 'string' && VALID_SESSION_ID.test(value) ? value : null;
+}
+
+/**
  * Resolve the current Claude Code session id.
  *
  * Hook stdin is authoritative because it is supplied by the harness for the
@@ -26,21 +42,22 @@ export function getSessionPath(sessionId: string): string {
  * there is no hook payload. When neither is available we return null rather
  * than falling back to a shared key — a shared key would reintroduce the
  * cross-session leakage this design removes.
+ *
+ * An id that fails validation is treated as unresolvable rather than sanitized:
+ * silently rewriting it would point the caller at a different session's file.
  */
 export function resolveSessionId(stdin?: string): string | null {
   if (stdin) {
     try {
       const parsed = JSON.parse(stdin) as Record<string, unknown>;
-      if (typeof parsed.session_id === 'string' && parsed.session_id.length > 0) {
-        return parsed.session_id;
-      }
+      const fromStdin = asValidSessionId(parsed.session_id);
+      if (fromStdin) return fromStdin;
     } catch {
       // Fall through to the environment.
     }
   }
 
-  const fromEnv = process.env.CLAUDE_CODE_SESSION_ID;
-  return fromEnv && fromEnv.length > 0 ? fromEnv : null;
+  return asValidSessionId(process.env.CLAUDE_CODE_SESSION_ID);
 }
 
 export function loadSessionState(sessionId: string): SessionState | null {

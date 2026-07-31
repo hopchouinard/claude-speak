@@ -50,6 +50,48 @@ describe('session state', () => {
       const { resolveSessionId } = await import('../src/session.js');
       expect(resolveSessionId('{}')).toBeNull();
     });
+
+    // A session id becomes a filename. Without validation, a crafted value
+    // steers every subsequent read/write/unlink out of the sessions directory.
+    it.each([
+      ['a path separator', '../../../../etc/passwd'],
+      ['a bare separator', 'a/b'],
+      ['a leading separator', '/etc/hosts'],
+      ['a backslash', 'abc\\def'],
+      ['a space', 'abc def'],
+      ['a tilde', '~'],
+      ['an empty string', ''],
+    ])('rejects a session id from stdin containing %s', async (_label, id) => {
+      const { resolveSessionId } = await import('../src/session.js');
+      expect(resolveSessionId(JSON.stringify({ session_id: id }))).toBeNull();
+    });
+
+    it('rejects an invalid session id from the environment', async () => {
+      process.env.CLAUDE_CODE_SESSION_ID = '../../evil';
+      const { resolveSessionId } = await import('../src/session.js');
+      expect(resolveSessionId()).toBeNull();
+    });
+
+    it('treats an invalid stdin id as absent and falls back to the environment', async () => {
+      // Same handling as a missing session_id or unparseable stdin: stdin simply
+      // did not yield a usable id. The env value is validated in its own right,
+      // so the fallback cannot smuggle a bad id through either.
+      process.env.CLAUDE_CODE_SESSION_ID = 'from-env';
+      const { resolveSessionId } = await import('../src/session.js');
+      expect(resolveSessionId(JSON.stringify({ session_id: '../evil' }))).toBe('from-env');
+    });
+
+    it('returns null when both stdin and the environment carry invalid ids', async () => {
+      process.env.CLAUDE_CODE_SESSION_ID = 'also/bad';
+      const { resolveSessionId } = await import('../src/session.js');
+      expect(resolveSessionId(JSON.stringify({ session_id: '../evil' }))).toBeNull();
+    });
+
+    it('accepts the real uuid shape Claude Code emits', async () => {
+      const uuid = 'c77d0304-ecce-439a-b937-d990c063d18e';
+      const { resolveSessionId } = await import('../src/session.js');
+      expect(resolveSessionId(JSON.stringify({ session_id: uuid }))).toBe(uuid);
+    });
   });
 
   describe('isActive', () => {

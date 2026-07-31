@@ -6736,6 +6736,18 @@ function expandTilde(filePath) {
 function detectPlaybackCommand() {
   return process.platform === "darwin" ? "afplay" : "paplay";
 }
+function pickBoolean(value, fallback) {
+  return typeof value === "boolean" ? value : fallback;
+}
+function pickNumber(value, fallback) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+function pickString(value, fallback) {
+  return typeof value === "string" && value.length > 0 ? value : fallback;
+}
+function asRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value : {};
+}
 function getSharedDefaults() {
   return {
     hooks: { stop: true, notification: true },
@@ -6811,15 +6823,15 @@ function loadConfig() {
     providers[activeProvider] = { ...defaults2 };
   }
   const enabled = envEnabled !== void 0 ? envEnabled === "true" : true;
-  const rawSpeech = fileConfig.speech ?? {};
-  const rawSummarizer = rawSpeech.summarizer ?? {};
+  const rawSpeech = asRecord(fileConfig.speech);
+  const rawSummarizer = asRecord(rawSpeech.summarizer);
   const speech = {
-    maxChars: rawSpeech.maxChars ?? shared.speech.maxChars,
-    condense: rawSpeech.condense ?? shared.speech.condense,
+    maxChars: pickNumber(rawSpeech.maxChars, shared.speech.maxChars),
+    condense: pickBoolean(rawSpeech.condense, shared.speech.condense),
     summarizer: {
-      model: rawSummarizer.model ?? shared.speech.summarizer.model,
-      timeout: rawSummarizer.timeout ?? shared.speech.summarizer.timeout,
-      maxWords: rawSummarizer.maxWords ?? shared.speech.summarizer.maxWords
+      model: pickString(rawSummarizer.model, shared.speech.summarizer.model),
+      timeout: pickNumber(rawSummarizer.timeout, shared.speech.summarizer.timeout),
+      maxWords: pickNumber(rawSummarizer.maxWords, shared.speech.summarizer.maxWords)
     }
   };
   return {
@@ -6852,18 +6864,20 @@ function getSessionsDir() {
 function getSessionPath(sessionId) {
   return path2.join(getSessionsDir(), `${sessionId}.json`);
 }
+var VALID_SESSION_ID = /^[A-Za-z0-9._-]+$/;
+function asValidSessionId(value) {
+  return typeof value === "string" && VALID_SESSION_ID.test(value) ? value : null;
+}
 function resolveSessionId(stdin) {
   if (stdin) {
     try {
       const parsed = JSON.parse(stdin);
-      if (typeof parsed.session_id === "string" && parsed.session_id.length > 0) {
-        return parsed.session_id;
-      }
+      const fromStdin = asValidSessionId(parsed.session_id);
+      if (fromStdin) return fromStdin;
     } catch {
     }
   }
-  const fromEnv = process.env.CLAUDE_CODE_SESSION_ID;
-  return fromEnv && fromEnv.length > 0 ? fromEnv : null;
+  return asValidSessionId(process.env.CLAUDE_CODE_SESSION_ID);
 }
 function loadSessionState(sessionId) {
   const filePath = getSessionPath(sessionId);
