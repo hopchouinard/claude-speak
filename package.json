@@ -1,10 +1,11 @@
 {
   "name": "claude-speak",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "description": "Voice output layer for Claude Code — passive spoken summaries and active voice capability",
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
+    "check:dist": "node build.mjs && git diff --quiet HEAD -- dist/ || (echo 'dist/ is stale — commit the rebuild' && exit 1)",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"

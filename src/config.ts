@@ -10,6 +10,18 @@ export interface ApiKeys {
   elevenlabs: string | null;
 }
 
+export interface SummarizerConfig {
+  model: string;
+  timeout: number;
+  maxWords: number;
+}
+
+export interface SpeechConfig {
+  maxChars: number;
+  condense: boolean;
+  summarizer: SummarizerConfig;
+}
+
 export interface VoiceConfig {
   enabled: boolean;
   activeProvider: string;
@@ -22,6 +34,7 @@ export interface VoiceConfig {
   playback: {
     command: string;
   };
+  speech: SpeechConfig;
   cooldown: number;
   timeout: number;
   logFile: string;
@@ -55,20 +68,115 @@ function detectPlaybackCommand(): string {
   return process.platform === 'darwin' ? 'afplay' : 'paplay';
 }
 
+/**
+ * Config values come from hand-edited JSON, so a field can hold any type.
+ * These pick the value only when it is actually the type we need, falling back
+ * to the default otherwise.
+ *
+ * A bare `??` is not enough: `"condense": "false"` is a string, which is not
+ * nullish, so `??` would keep it — and a non-empty string is truthy, so
+ * condensation would stay on for someone who was trying to turn it off.
+ */
+function pickBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback;
+}
+
+function pickNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function pickString(value: unknown, fallback: string): string {
+  return typeof value === 'string' && value.length > 0 ? value : fallback;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 function getSharedDefaults() {
   return {
-    hooks: { stop: true, notification: true },
+    // Notification speech is off by default. The Notification hook receives
+    // Claude Code's own system strings — away summaries, recaps, permission
+    // prompts — which are neither the assistant's words nor visible on screen,
+    // so speaking them produces narration the user never asked for and cannot
+    // find in the transcript. That is the exact thing this release exists to
+    // stop. Set "notification": true to opt back in.
+    hooks: { stop: true, notification: false },
     playback: { command: detectPlaybackCommand() },
+    speech: {
+      maxChars: 500,
+      condense: true,
+      summarizer: {
+        model: 'gpt-5.4-nano-2026-03-17',
+        timeout: 8,
+        maxWords: 40,
+      },
+    },
     cooldown: 15,
     timeout: 30,
     logFile: path.join(os.homedir(), '.claude-speak', 'logs', 'voice.log'),
   };
 }
 
+/**
+ * Read KEY=value pairs out of ~/.claude-speak/env.
+ *
+ * hooks.json sources this file before invoking the CLI, but the speak skill and
+ * anything run by hand do not — so a key kept only in this file reached the
+ * passive end-of-turn path and nothing else. Active voice and every speaking
+ * subcommand failed with "No API key", silently apart from an error beep.
+ * Reading it here fixes every invocation path at once.
+ *
+ * The file is *parsed*, never executed. A shell sources it elsewhere, but
+ * evaluating it here would run arbitrary code on every CLI start.
+ */
+function readEnvFile(): Record<string, string> {
+  const result: Record<string, string> = {};
+
+  let raw: unknown;
+  try {
+    raw = fs.readFileSync(path.join(os.homedir(), '.claude-speak', 'env'), 'utf-8');
+  } catch {
+    return result;
+  }
+  if (typeof raw !== 'string') return result;
+
+  for (const line of raw.split('\n')) {
+    // Comments and blank lines cannot match: `#` is not an identifier start.
+    const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
+    if (!match) continue;
+
+    const [, name] = match;
+    let value = match[2].trim();
+
+    const quote = value[0];
+    if ((quote === '"' || quote === "'") && value.length > 1 && value.endsWith(quote)) {
+      value = value.slice(1, -1);
+    } else {
+      // Unquoted: stop at whitespace, matching how a shell would treat the
+      // assignment, so a trailing comment cannot end up inside the key.
+      value = value.split(/\s/)[0];
+    }
+
+    if (value.length > 0) result[name] = value;
+  }
+
+  return result;
+}
+
 function loadApiKeys(): ApiKeys {
+  const fileEnv = readEnvFile();
+
+  // Process environment wins over the file: an explicitly exported key should
+  // override whatever was written to disk earlier.
+  const pick = (name: string): string | null =>
+    process.env[`CLAUDE_PLUGIN_OPTION_${name}`] ?? process.env[name] ?? fileEnv[name] ?? null;
+
   return {
-    openai: process.env.CLAUDE_PLUGIN_OPTION_OPENAI_API_KEY ?? process.env.OPENAI_API_KEY ?? null,
-    elevenlabs: process.env.CLAUDE_PLUGIN_OPTION_ELEVENLABS_API_KEY ?? process.env.ELEVENLABS_API_KEY ?? null,
+    openai: pick('OPENAI_API_KEY'),
+    elevenlabs: pick('ELEVENLABS_API_KEY'),
   };
 }
 
@@ -137,6 +245,18 @@ export function loadConfig(): VoiceConfig {
 
   const enabled = envEnabled !== undefined ? envEnabled === 'true' : true;
 
+  const rawSpeech = asRecord(fileConfig.speech);
+  const rawSummarizer = asRecord(rawSpeech.summarizer);
+  const speech: SpeechConfig = {
+    maxChars: pickNumber(rawSpeech.maxChars, shared.speech.maxChars),
+    condense: pickBoolean(rawSpeech.condense, shared.speech.condense),
+    summarizer: {
+      model: pickString(rawSummarizer.model, shared.speech.summarizer.model),
+      timeout: pickNumber(rawSummarizer.timeout, shared.speech.summarizer.timeout),
+      maxWords: pickNumber(rawSummarizer.maxWords, shared.speech.summarizer.maxWords),
+    },
+  };
+
   return {
     enabled,
     activeProvider,
@@ -149,6 +269,7 @@ export function loadConfig(): VoiceConfig {
     playback: {
       command: (fileConfig.playback as Record<string, string>)?.command ?? shared.playback.command,
     },
+    speech,
     cooldown: (fileConfig.cooldown as number) ?? shared.cooldown,
     timeout: (fileConfig.timeout as number) ?? shared.timeout,
     logFile: expandTilde((fileConfig.logFile as string) ?? shared.logFile),

@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import { loadConfig, getConfigPath, PROVIDER_DEFAULTS } from './config.js';
-import { loadSession, writeSession } from './session.js';
+import { activate, deactivate, getSessionPath, isActive, setSpokeThisTurn, gcSessions, setSilencedThisTurn, consumeSilencedThisTurn } from './session.js';
+import { stopPlayback, killTrackedPlayback, readPlaybackState } from './player.js';
 import { readCache, fetchElevenLabsVoices, writeCache, resolveVoiceName } from './voice-cache.js';
 
 export interface SubcommandResult {
@@ -17,7 +18,9 @@ const OPENAI_VOICES = [
 
 const SUPPORTED_PROVIDERS = ['openai', 'elevenlabs'];
 
-const AVAILABLE_COMMANDS = ['mute', 'unmute', 'provider', 'speed', 'voice', 'voices', 'status', 'test'];
+const AVAILABLE_COMMANDS = [
+  'on', 'off', 'mute', 'unmute', 'provider', 'speed', 'voice', 'voices', 'status', 'test',
+];
 
 const ENV_VAR_MAP: Record<string, string> = {
   openai: 'OPENAI_API_KEY',
@@ -37,14 +40,73 @@ function updateConfigFile(updater: (config: Record<string, unknown>) => void): v
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
 }
 
-async function handleMute(): Promise<SubcommandResult> {
-  writeSession({ muted: true });
-  return { message: 'Voice output muted for this session.', speak: false };
+async function handleOn(sessionId: string | null): Promise<SubcommandResult> {
+  if (!sessionId) {
+    return {
+      message:
+        'Cannot determine the current session. Voice not activated. ' +
+        'CLAUDE_CODE_SESSION_ID was not set in this environment, and no hook payload ' +
+        'supplied a session id. If you know the session id, activate manually with: ' +
+        'CLAUDE_CODE_SESSION_ID=<id> node dist/cli.js --cmd on',
+      speak: false,
+      error: true,
+    };
+  }
+  activate(sessionId);
+  return { message: 'Voice output activated for this session.', speak: true };
 }
 
-async function handleUnmute(): Promise<SubcommandResult> {
-  writeSession({ muted: false });
-  return { message: 'Voice output unmuted.', speak: true };
+async function handleOff(sessionId: string | null): Promise<SubcommandResult> {
+  // Reporting success when the state file survives would be a lie the user
+  // acts on: the Stop hook keeps reading it as active and narration
+  // continues after they were told voice was off.
+  if (sessionId && !deactivate(sessionId)) {
+    return {
+      message:
+        'Could not turn voice off — the session state file could not be removed. ' +
+        'Delete ' + getSessionPath(sessionId) + ' by hand, or voice will keep speaking.',
+      speak: false,
+      error: true,
+    };
+  }
+  return { message: 'Voice output off for this session.', speak: false };
+}
+
+/**
+ * `!shutup`. A global stop: silence the machine and discard every session's
+ * pending audio, because the user asked for quiet and cannot tell which
+ * window is talking.
+ */
+async function handleStop(sessionId: string | null): Promise<SubcommandResult> {
+  stopPlayback(null);
+  // The user asked for silence; speaking the end-of-turn message right after
+  // would answer that request with more speech.
+  if (sessionId) setSilencedThisTurn(sessionId);
+  return { message: '', speak: false };
+}
+
+/**
+ * UserPromptSubmit. A stop scoped to the submitting session: it still kills
+ * whatever is audible, but it must not discard another window's pending
+ * narration — that message is never retried, and the user of that window
+ * asked for nothing.
+ */
+async function handleTurnStart(sessionId: string | null): Promise<SubcommandResult> {
+  if (sessionId) {
+    stopPlayback(sessionId);
+  } else {
+    // stopPlayback(null) is the deliberate global mode used by !shutup.
+    // Reusing it for an unresolved turn-start would let one window discard
+    // every other window's pending synthesis on every prompt — the
+    // cross-session interference this release exists to remove. Kill
+    // audible playback only.
+    killTrackedPlayback();
+  }
+  if (sessionId) {
+    setSpokeThisTurn(sessionId, false);
+    consumeSilencedThisTurn(sessionId);
+  }
+  return { message: '', speak: false };
 }
 
 async function handleProvider(args: string[]): Promise<SubcommandResult> {
@@ -215,17 +277,27 @@ async function handleVoices(): Promise<SubcommandResult> {
   };
 }
 
-async function handleStatus(): Promise<SubcommandResult> {
+async function handleStatus(sessionId: string | null): Promise<SubcommandResult> {
   const config = loadConfig();
-  const session = loadSession();
   const provider = config.activeProvider;
   const providerConfig = config.providers[provider];
 
+  // Playback is machine-global, so this can report a stream started by a
+  // different window. That is the point: it is the only way to see what
+  // `!shutup` would silence.
+  const playback = readPlaybackState();
+  const playbackLine = playback
+    ? `Playback: playing (pid ${playback.pid}, session ${playback.sessionId ?? 'unknown'})`
+    : 'Playback: idle';
+
   const lines = [
+    `Session: ${sessionId ?? 'unknown'}`,
+    `Voice: ${isActive(sessionId) ? 'active' : 'off'}`,
+    playbackLine,
     `Provider: ${provider}`,
-    `Voice: ${providerConfig?.voice ?? '(not set)'}`,
+    `Voice name: ${providerConfig?.voice ?? '(not set)'}`,
     `Speed: ${providerConfig?.speed ?? 1.0}`,
-    `Muted: ${session.muted ? 'yes' : 'no'}`,
+    `Condense: ${config.speech.condense} (over ${config.speech.maxChars} chars)`,
     `Hooks: stop=${config.hooks.stop}, notification=${config.hooks.notification}`,
   ];
 
@@ -245,12 +317,25 @@ async function handleTest(): Promise<SubcommandResult> {
   };
 }
 
-export async function dispatch(cmd: string, args: string[]): Promise<SubcommandResult> {
+export async function dispatch(
+  cmd: string,
+  args: string[],
+  sessionId: string | null,
+): Promise<SubcommandResult> {
   switch (cmd) {
-    case 'mute':
-      return handleMute();
+    case 'on':
     case 'unmute':
-      return handleUnmute();
+      return handleOn(sessionId);
+    case 'off':
+    case 'mute':
+      return handleOff(sessionId);
+    case 'stop':
+      return handleStop(sessionId);
+    case 'turn-start':
+      return handleTurnStart(sessionId);
+    case 'gc':
+      gcSessions(undefined, sessionId);
+      return { message: '', speak: false };
     case 'provider':
       return handleProvider(args);
     case 'speed':
@@ -260,7 +345,7 @@ export async function dispatch(cmd: string, args: string[]): Promise<SubcommandR
     case 'voices':
       return handleVoices();
     case 'status':
-      return handleStatus();
+      return handleStatus(sessionId);
     case 'test':
       return handleTest();
     default:

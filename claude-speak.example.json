@@ -18,12 +18,21 @@
   },
   "hooks": {
     "stop": true,
-    "notification": true
+    "notification": false
   },
   "playback": {
     "command": "afplay"
   },
-  "cooldown": 10,
+  "speech": {
+    "maxChars": 500,
+    "condense": true,
+    "summarizer": {
+      "model": "gpt-5.4-nano-2026-03-17",
+      "timeout": 8,
+      "maxWords": 40
+    }
+  },
+  "cooldown": 15,
   "timeout": 30,
   "logFile": "~/.claude-speak/logs/voice.log"
 }
