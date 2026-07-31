@@ -6595,7 +6595,7 @@ __export(fileFromPath_exports, {
   fileFromPathSync: () => fileFromPathSync,
   isFile: () => isFile
 });
-import { statSync, createReadStream, promises as fs3 } from "fs";
+import { statSync as statSync2, createReadStream, promises as fs3 } from "fs";
 import { basename } from "path";
 function createFileFromPath(path8, { mtimeMs, size }, filenameOrOptions, options = {}) {
   let filename;
@@ -6614,7 +6614,7 @@ function createFileFromPath(path8, { mtimeMs, size }, filenameOrOptions, options
   });
 }
 function fileFromPathSync(path8, filenameOrOptions, options = {}) {
-  const stats = statSync(path8);
+  const stats = statSync2(path8);
   return createFileFromPath(path8, stats, filenameOrOptions, options);
 }
 async function fileFromPath2(path8, filenameOrOptions, options) {
@@ -6740,6 +6740,15 @@ function getSharedDefaults() {
   return {
     hooks: { stop: true, notification: true },
     playback: { command: detectPlaybackCommand() },
+    speech: {
+      maxChars: 500,
+      condense: true,
+      summarizer: {
+        model: "gpt-5.4-nano-2026-03-17",
+        timeout: 8,
+        maxWords: 40
+      }
+    },
     cooldown: 15,
     timeout: 30,
     logFile: path.join(os.homedir(), ".claude-speak", "logs", "voice.log")
@@ -6802,6 +6811,17 @@ function loadConfig() {
     providers[activeProvider] = { ...defaults2 };
   }
   const enabled = envEnabled !== void 0 ? envEnabled === "true" : true;
+  const rawSpeech = fileConfig.speech ?? {};
+  const rawSummarizer = rawSpeech.summarizer ?? {};
+  const speech = {
+    maxChars: rawSpeech.maxChars ?? shared.speech.maxChars,
+    condense: rawSpeech.condense ?? shared.speech.condense,
+    summarizer: {
+      model: rawSummarizer.model ?? shared.speech.summarizer.model,
+      timeout: rawSummarizer.timeout ?? shared.speech.summarizer.timeout,
+      maxWords: rawSummarizer.maxWords ?? shared.speech.summarizer.maxWords
+    }
+  };
   return {
     enabled,
     activeProvider,
@@ -6814,6 +6834,7 @@ function loadConfig() {
     playback: {
       command: fileConfig.playback?.command ?? shared.playback.command
     },
+    speech,
     cooldown: fileConfig.cooldown ?? shared.cooldown,
     timeout: fileConfig.timeout ?? shared.timeout,
     logFile: expandTilde(fileConfig.logFile ?? shared.logFile)
@@ -6824,37 +6845,109 @@ function loadConfig() {
 import * as fs2 from "node:fs";
 import * as path2 from "node:path";
 import * as os2 from "node:os";
-var SESSION_DEFAULTS = {
-  muted: false
-};
-function getSessionPath() {
-  return path2.join(os2.homedir(), ".claude-speak", "session.json");
+var DEFAULT_MAX_AGE_MS = 24 * 60 * 60 * 1e3;
+function getSessionsDir() {
+  return path2.join(os2.homedir(), ".claude-speak", "sessions");
 }
-function loadSession() {
-  const sessionPath = getSessionPath();
-  if (!fs2.existsSync(sessionPath)) {
-    return { ...SESSION_DEFAULTS };
-  }
-  try {
-    const raw = fs2.readFileSync(sessionPath, "utf-8");
-    const parsed = JSON.parse(raw);
-    if (typeof parsed.muted !== "boolean") {
-      fs2.unlinkSync(sessionPath);
-      return { ...SESSION_DEFAULTS };
-    }
-    return { muted: parsed.muted };
-  } catch {
+function getSessionPath(sessionId) {
+  return path2.join(getSessionsDir(), `${sessionId}.json`);
+}
+function resolveSessionId(stdin) {
+  if (stdin) {
     try {
-      fs2.unlinkSync(sessionPath);
+      const parsed = JSON.parse(stdin);
+      if (typeof parsed.session_id === "string" && parsed.session_id.length > 0) {
+        return parsed.session_id;
+      }
     } catch {
     }
-    return { ...SESSION_DEFAULTS };
+  }
+  const fromEnv = process.env.CLAUDE_CODE_SESSION_ID;
+  return fromEnv && fromEnv.length > 0 ? fromEnv : null;
+}
+function loadSessionState(sessionId) {
+  const filePath = getSessionPath(sessionId);
+  if (!fs2.existsSync(filePath)) return null;
+  try {
+    const parsed = JSON.parse(fs2.readFileSync(filePath, "utf-8"));
+    if (typeof parsed.active !== "boolean") throw new Error("invalid state");
+    return {
+      active: parsed.active,
+      activatedAt: typeof parsed.activatedAt === "number" ? parsed.activatedAt : 0,
+      spokeThisTurn: parsed.spokeThisTurn === true
+    };
+  } catch {
+    try {
+      fs2.unlinkSync(filePath);
+    } catch {
+    }
+    return null;
   }
 }
-function writeSession(state) {
-  const sessionPath = getSessionPath();
-  fs2.mkdirSync(path2.dirname(sessionPath), { recursive: true });
-  fs2.writeFileSync(sessionPath, JSON.stringify(state, null, 2), "utf-8");
+function writeSessionState(sessionId, state) {
+  const filePath = getSessionPath(sessionId);
+  fs2.mkdirSync(path2.dirname(filePath), { recursive: true });
+  fs2.writeFileSync(filePath, JSON.stringify(state, null, 2), "utf-8");
+}
+function isActive(sessionId) {
+  if (!sessionId) return false;
+  return loadSessionState(sessionId)?.active === true;
+}
+function activate(sessionId) {
+  writeSessionState(sessionId, {
+    active: true,
+    activatedAt: Date.now(),
+    spokeThisTurn: false
+  });
+}
+function deactivate(sessionId) {
+  const filePath = getSessionPath(sessionId);
+  if (!fs2.existsSync(filePath)) return;
+  try {
+    fs2.unlinkSync(filePath);
+  } catch {
+  }
+}
+function setSpokeThisTurn(sessionId, value) {
+  const state = loadSessionState(sessionId);
+  if (!state) return;
+  writeSessionState(sessionId, { ...state, spokeThisTurn: value });
+}
+function consumeSpokeThisTurn(sessionId) {
+  const state = loadSessionState(sessionId);
+  if (!state) return false;
+  if (state.spokeThisTurn) {
+    writeSessionState(sessionId, { ...state, spokeThisTurn: false });
+  }
+  return state.spokeThisTurn;
+}
+function gcSessions(maxAgeMs = DEFAULT_MAX_AGE_MS) {
+  const legacyPath = path2.join(os2.homedir(), ".claude-speak", "session.json");
+  if (fs2.existsSync(legacyPath)) {
+    try {
+      fs2.unlinkSync(legacyPath);
+    } catch {
+    }
+  }
+  const dir = getSessionsDir();
+  if (!fs2.existsSync(dir)) return;
+  const cutoff = Date.now() - maxAgeMs;
+  let entries;
+  try {
+    entries = fs2.readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (!entry.endsWith(".json")) continue;
+    const filePath = path2.join(dir, entry);
+    try {
+      if (fs2.statSync(filePath).mtimeMs < cutoff) {
+        fs2.unlinkSync(filePath);
+      }
+    } catch {
+    }
+  }
 }
 
 // src/extractor.ts
@@ -13601,61 +13694,132 @@ function createProvider(providerName, apiKeys) {
   }
 }
 
-// src/player.ts
-import { spawn } from "node:child_process";
-import * as fs4 from "node:fs";
-import * as os3 from "node:os";
-import * as path3 from "node:path";
-function playAudio(audio, command) {
-  const tmpDir = fs4.mkdtempSync(path3.join(os3.tmpdir(), "claude-speak-"));
-  const filePath = path3.join(tmpDir, "output.mp3");
-  fs4.writeFileSync(filePath, audio);
-  const child = spawn(command, [filePath], {
-    detached: true,
-    stdio: "ignore"
-  });
-  child.on("exit", () => {
-    try {
-      fs4.unlinkSync(filePath);
-      fs4.rmdirSync(tmpDir);
-    } catch {
-    }
-  });
-  child.unref();
-}
-
-// src/lock.ts
-import * as fs5 from "node:fs";
-import * as path4 from "node:path";
-function writeLock(lockPath) {
-  fs5.mkdirSync(path4.dirname(lockPath), { recursive: true });
-  fs5.writeFileSync(lockPath, String(Date.now()));
-}
-function isLocked(lockPath, cooldownSeconds) {
-  if (!fs5.existsSync(lockPath)) return false;
-  try {
-    const raw = fs5.readFileSync(lockPath, "utf-8");
-    const timestamp = Number(raw);
-    if (Number.isNaN(timestamp)) return false;
-    const elapsed = Date.now() - timestamp;
-    return elapsed < cooldownSeconds * 1e3;
-  } catch {
-    return false;
+// src/condenser.ts
+var TABLE_SEPARATOR = /^\|?\s*[-:]+\s*\|/;
+var LIST_ITEM = /^\s*(?:[-*]\s+|\d+\.\s+)/;
+function hasTable(text) {
+  const lines = text.split("\n");
+  for (let i2 = 0; i2 < lines.length - 1; i2++) {
+    if (lines[i2].includes("|") && TABLE_SEPARATOR.test(lines[i2 + 1])) return true;
   }
+  return false;
+}
+function hasCodeFence(text) {
+  return /^```/m.test(text);
+}
+function countListItems(text) {
+  return text.split("\n").filter((line) => LIST_ITEM.test(line)).length;
+}
+function shouldCondense(raw, maxChars) {
+  if (!raw) return false;
+  if (hasTable(raw)) return true;
+  if (hasCodeFence(raw)) return true;
+  if (countListItems(raw) >= 5) return true;
+  return sanitize(raw).length > maxChars;
+}
+function stripCodeFences(text) {
+  const lines = text.split("\n");
+  const fenceIndices = [];
+  lines.forEach((line, idx) => {
+    if (/^```/.test(line)) fenceIndices.push(idx);
+  });
+  const pairedCount = fenceIndices.length - fenceIndices.length % 2;
+  const pairedMarkers = new Set(fenceIndices.slice(0, pairedCount));
+  const strayMarker = fenceIndices.length % 2 === 1 ? fenceIndices[fenceIndices.length - 1] : -1;
+  const kept = [];
+  let inFence = false;
+  for (let i2 = 0; i2 < lines.length; i2++) {
+    if (pairedMarkers.has(i2)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (i2 === strayMarker) continue;
+    if (!inFence) kept.push(lines[i2]);
+  }
+  return kept.join("\n");
+}
+function stripTables(text) {
+  const lines = text.split("\n");
+  const kept = [];
+  let i2 = 0;
+  while (i2 < lines.length) {
+    const isTableStart = lines[i2].includes("|") && i2 + 1 < lines.length && TABLE_SEPARATOR.test(lines[i2 + 1]);
+    if (isTableStart) {
+      i2 += 2;
+      while (i2 < lines.length && lines[i2].includes("|")) i2++;
+      continue;
+    }
+    kept.push(lines[i2]);
+    i2++;
+  }
+  return kept.join("\n");
+}
+function collapseLists(text) {
+  const lines = text.split("\n");
+  const out = [];
+  let i2 = 0;
+  while (i2 < lines.length) {
+    if (!LIST_ITEM.test(lines[i2])) {
+      out.push(lines[i2]);
+      i2++;
+      continue;
+    }
+    const items = [];
+    while (i2 < lines.length && LIST_ITEM.test(lines[i2])) {
+      items.push(lines[i2]);
+      i2++;
+    }
+    out.push(...items.slice(0, 3));
+    if (items.length > 3) out.push(`and ${items.length - 3} more`);
+  }
+  return out.join("\n");
+}
+function paragraphHasListItems(paragraph) {
+  return paragraph.split("\n").some((line) => LIST_ITEM.test(line));
+}
+function keepStructuralParagraphs(text) {
+  const paragraphs = text.split(/\n{2,}/).map((p2) => p2.trim()).filter((p2) => p2.length > 0);
+  if (paragraphs.length <= 2) return paragraphs.join("\n\n");
+  const first = paragraphs[0];
+  const last = paragraphs[paragraphs.length - 1];
+  const middleWithLists = paragraphs.slice(1, -1).filter(paragraphHasListItems);
+  return [first, ...middleWithLists, last].join("\n\n");
+}
+function truncate(text, maxChars) {
+  if (text.length <= maxChars) return text;
+  const window2 = text.slice(0, maxChars);
+  const lastSentence = Math.max(
+    window2.lastIndexOf(". "),
+    window2.lastIndexOf("! "),
+    window2.lastIndexOf("? "),
+    window2.endsWith(".") ? window2.length - 1 : -1
+  );
+  if (lastSentence > 0) return window2.slice(0, lastSentence + 1).trim();
+  const lastSpace = window2.lastIndexOf(" ");
+  if (lastSpace > 0) return window2.slice(0, lastSpace).trim() + " ";
+  return "";
+}
+function heuristicCondense(raw, maxChars) {
+  if (!raw) return "";
+  let result = stripCodeFences(raw);
+  result = stripTables(result);
+  result = collapseLists(result);
+  result = keepStructuralParagraphs(result);
+  return truncate(result.trim(), maxChars);
 }
 
 // src/error.ts
 import { spawnSync } from "node:child_process";
-import * as fs6 from "node:fs";
-import * as path5 from "node:path";
+import * as fs4 from "node:fs";
+import * as path3 from "node:path";
 function handleError(error, logFile) {
   try {
     const message = error instanceof Error ? error.message : String(error);
     const timestamp = (/* @__PURE__ */ new Date()).toISOString();
     const logEntry = `[${timestamp}] ERROR: ${message}
 `;
-    fs6.mkdirSync(path5.dirname(logFile), { recursive: true });
-    fs6.appendFileSync(logFile, logEntry);
+    fs4.mkdirSync(path3.dirname(logFile), { recursive: true });
+    fs4.appendFileSync(logFile, logEntry);
   } catch {
   }
   try {
@@ -13665,6 +13829,173 @@ function handleError(error, logFile) {
       spawnSync("paplay", ["/usr/share/sounds/freedesktop/stereo/dialog-error.oga"]);
     }
   } catch {
+  }
+}
+function logWarning(message, logFile) {
+  try {
+    const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+    fs4.mkdirSync(path3.dirname(logFile), { recursive: true });
+    fs4.appendFileSync(logFile, `[${timestamp}] WARN: ${message}
+`);
+  } catch {
+  }
+}
+
+// src/summarizer.ts
+var ENDPOINT = "https://api.openai.com/v1/chat/completions";
+function buildSystemPrompt(maxWords) {
+  return [
+    "Rewrite this message to be heard, not read.",
+    `Two sentences maximum, under ${maxWords} words.`,
+    "State the outcome and the single number that matters most.",
+    "No markdown, no file paths, no lists.",
+    "If the input was a table of results, say how many there were and whether they passed.",
+    "Reply with only the rewritten text."
+  ].join(" ");
+}
+async function summarizeForSpeech(raw, config) {
+  const apiKey = config.apiKeys.openai;
+  if (!apiKey) {
+    logWarning("summarizer skipped: no OpenAI API key configured", config.logFile);
+    return null;
+  }
+  const { model, timeout, maxWords } = config.speech.summarizer;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout * 1e3);
+  try {
+    const response = await fetch(ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: buildSystemPrompt(maxWords) },
+          { role: "user", content: raw }
+        ]
+      }),
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      logWarning(`summarizer failed: HTTP ${response.status}`, config.logFile);
+      return null;
+    }
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (typeof content !== "string" || content.trim().length === 0) {
+      logWarning("summarizer failed: empty or malformed response", config.logFile);
+      return null;
+    }
+    return content.trim();
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    logWarning(`summarizer failed: ${reason}`, config.logFile);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// src/player.ts
+import { spawn } from "node:child_process";
+import * as fs5 from "node:fs";
+import * as os3 from "node:os";
+import * as path4 from "node:path";
+function stateDir() {
+  return path4.join(os3.homedir(), ".claude-speak");
+}
+function getPlaybackPath() {
+  return path4.join(stateDir(), "playback.json");
+}
+function getStopEpochPath() {
+  return path4.join(stateDir(), "stop-epoch");
+}
+function clearPlaybackFile() {
+  const filePath = getPlaybackPath();
+  try {
+    if (fs5.existsSync(filePath)) fs5.unlinkSync(filePath);
+  } catch {
+  }
+}
+function playAudio(audio, command) {
+  const tmpDir = fs5.mkdtempSync(path4.join(os3.tmpdir(), "claude-speak-"));
+  const filePath = path4.join(tmpDir, "output.mp3");
+  fs5.writeFileSync(filePath, audio);
+  const child = spawn(command, [filePath], {
+    detached: true,
+    stdio: "ignore"
+  });
+  if (child.pid) {
+    try {
+      fs5.mkdirSync(stateDir(), { recursive: true });
+      fs5.writeFileSync(
+        getPlaybackPath(),
+        JSON.stringify({ pid: child.pid, startedAt: Date.now() }, null, 2),
+        "utf-8"
+      );
+    } catch {
+    }
+  }
+  child.on("exit", () => {
+    clearPlaybackFile();
+    try {
+      fs5.unlinkSync(filePath);
+      fs5.rmdirSync(tmpDir);
+    } catch {
+    }
+  });
+  child.unref();
+}
+function stopPlayback() {
+  try {
+    fs5.mkdirSync(stateDir(), { recursive: true });
+    fs5.writeFileSync(getStopEpochPath(), String(Date.now()), "utf-8");
+  } catch {
+  }
+  const filePath = getPlaybackPath();
+  if (!fs5.existsSync(filePath)) return;
+  try {
+    const { pid } = JSON.parse(fs5.readFileSync(filePath, "utf-8"));
+    if (typeof pid === "number") {
+      try {
+        process.kill(pid, "SIGTERM");
+      } catch {
+      }
+    }
+  } catch {
+  }
+  clearPlaybackFile();
+}
+function readStopEpoch() {
+  const filePath = getStopEpochPath();
+  if (!fs5.existsSync(filePath)) return 0;
+  try {
+    const value = Number(fs5.readFileSync(filePath, "utf-8"));
+    return Number.isNaN(value) ? 0 : value;
+  } catch {
+    return 0;
+  }
+}
+
+// src/lock.ts
+import * as fs6 from "node:fs";
+import * as path5 from "node:path";
+function writeLock(lockPath) {
+  fs6.mkdirSync(path5.dirname(lockPath), { recursive: true });
+  fs6.writeFileSync(lockPath, String(Date.now()));
+}
+function isLocked(lockPath, cooldownSeconds) {
+  if (!fs6.existsSync(lockPath)) return false;
+  try {
+    const raw = fs6.readFileSync(lockPath, "utf-8");
+    const timestamp = Number(raw);
+    if (Number.isNaN(timestamp)) return false;
+    const elapsed = Date.now() - timestamp;
+    return elapsed < cooldownSeconds * 1e3;
+  } catch {
+    return false;
   }
 }
 
@@ -13742,7 +14073,18 @@ var OPENAI_VOICES = [
   "verse"
 ];
 var SUPPORTED_PROVIDERS = ["openai", "elevenlabs"];
-var AVAILABLE_COMMANDS = ["mute", "unmute", "provider", "speed", "voice", "voices", "status", "test"];
+var AVAILABLE_COMMANDS = [
+  "on",
+  "off",
+  "mute",
+  "unmute",
+  "provider",
+  "speed",
+  "voice",
+  "voices",
+  "status",
+  "test"
+];
 var ENV_VAR_MAP = {
   openai: "OPENAI_API_KEY",
   elevenlabs: "ELEVENLABS_API_KEY"
@@ -13758,13 +14100,29 @@ function updateConfigFile(updater) {
   updater(config);
   fs8.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
 }
-async function handleMute() {
-  writeSession({ muted: true });
-  return { message: "Voice output muted for this session.", speak: false };
+async function handleOn(sessionId) {
+  if (!sessionId) {
+    return {
+      message: "Cannot determine the current session. Voice not activated. This usually means CLAUDE_CODE_SESSION_ID is unavailable \u2014 try restarting Claude Code.",
+      speak: false,
+      error: true
+    };
+  }
+  activate(sessionId);
+  return { message: "Voice output activated for this session.", speak: true };
 }
-async function handleUnmute() {
-  writeSession({ muted: false });
-  return { message: "Voice output unmuted.", speak: true };
+async function handleOff(sessionId) {
+  if (sessionId) deactivate(sessionId);
+  return { message: "Voice output off for this session.", speak: false };
+}
+async function handleStop() {
+  stopPlayback();
+  return { message: "", speak: false };
+}
+async function handleTurnStart(sessionId) {
+  stopPlayback();
+  if (sessionId) setSpokeThisTurn(sessionId, false);
+  return { message: "", speak: false };
 }
 async function handleProvider(args) {
   const name = args[0]?.toLowerCase();
@@ -13908,16 +14266,17 @@ ${lines.join("\n")}`,
     speak: false
   };
 }
-async function handleStatus() {
+async function handleStatus(sessionId) {
   const config = loadConfig();
-  const session = loadSession();
   const provider = config.activeProvider;
   const providerConfig = config.providers[provider];
   const lines = [
+    `Session: ${sessionId ?? "unknown"}`,
+    `Voice: ${isActive(sessionId) ? "active" : "off"}`,
     `Provider: ${provider}`,
-    `Voice: ${providerConfig?.voice ?? "(not set)"}`,
+    `Voice name: ${providerConfig?.voice ?? "(not set)"}`,
     `Speed: ${providerConfig?.speed ?? 1}`,
-    `Muted: ${session.muted ? "yes" : "no"}`,
+    `Condense: ${config.speech.condense} (over ${config.speech.maxChars} chars)`,
     `Hooks: stop=${config.hooks.stop}, notification=${config.hooks.notification}`
   ];
   return { message: lines.join("\n"), speak: false };
@@ -13933,12 +14292,21 @@ async function handleTest() {
     speak: true
   };
 }
-async function dispatch(cmd, args) {
+async function dispatch(cmd, args, sessionId) {
   switch (cmd) {
-    case "mute":
-      return handleMute();
+    case "on":
     case "unmute":
-      return handleUnmute();
+      return handleOn(sessionId);
+    case "off":
+    case "mute":
+      return handleOff(sessionId);
+    case "stop":
+      return handleStop();
+    case "turn-start":
+      return handleTurnStart(sessionId);
+    case "gc":
+      gcSessions();
+      return { message: "", speak: false };
     case "provider":
       return handleProvider(args);
     case "speed":
@@ -13948,7 +14316,7 @@ async function dispatch(cmd, args) {
     case "voices":
       return handleVoices();
     case "status":
-      return handleStatus();
+      return handleStatus(sessionId);
     case "test":
       return handleTest();
     default:
@@ -13967,6 +14335,18 @@ function debug2(msg) {
   if (DEBUG) process.stderr.write(`[claude-speak] ${msg}
 `);
 }
+async function condenseForSpeech(text, config) {
+  if (!config.speech.condense) return text;
+  if (!shouldCondense(text, config.speech.maxChars)) return text;
+  debug2("condensing: over threshold");
+  const rewritten = await summarizeForSpeech(text, config);
+  if (rewritten) return rewritten;
+  debug2("condensing: summarizer unavailable, using heuristic");
+  return heuristicCondense(text, config.speech.maxChars);
+}
+function stopRequestedSince(requestedAt) {
+  return readStopEpoch() > requestedAt;
+}
 async function speakText(text, config) {
   const providerConfig = config.providers[config.activeProvider];
   const apiKey = config.apiKeys[config.activeProvider];
@@ -13981,6 +14361,7 @@ async function speakText(text, config) {
   if (!sanitized) return;
   try {
     const provider = createProvider(config.activeProvider, config.apiKeys);
+    const requestedAt = Date.now();
     const audio = await provider.synthesize(sanitized, {
       voice: providerConfig?.voice ?? "ash",
       model: providerConfig?.model ?? "gpt-4o-mini-tts-2025-12-15",
@@ -13991,6 +14372,10 @@ async function speakText(text, config) {
       similarityBoost: providerConfig?.similarityBoost,
       style: providerConfig?.style
     });
+    if (stopRequestedSince(requestedAt)) {
+      debug2("EXIT: stop requested during synthesis");
+      return;
+    }
     playAudio(audio, config.playback.command);
   } catch (err) {
     debug2(`TTS ERROR: ${err instanceof Error ? err.message : String(err)}`);
@@ -14005,25 +14390,26 @@ async function run(args, stdin) {
     debug2("EXIT: disabled");
     return;
   }
-  const session = loadSession();
+  const sessionId = resolveSessionId(stdin);
+  debug2(`sessionId=${sessionId}`);
   const cmdIndex = args.indexOf("--cmd");
   if (cmdIndex !== -1) {
     const subCmd = args[cmdIndex + 1];
     if (!subCmd) {
-      process.stdout.write("Usage: --cmd <subcommand> [args]\nAvailable: mute, unmute, provider, speed, voice, voices, status, test\n");
+      process.stdout.write("Usage: --cmd <subcommand> [args]\nAvailable: on, off, mute, unmute, provider, speed, voice, voices, status, test\n");
       return;
     }
     const subArgs = args.slice(cmdIndex + 2);
-    const result = await dispatch(subCmd, subArgs);
+    const result = await dispatch(subCmd, subArgs, sessionId);
     if (result.message) process.stdout.write(result.message + "\n");
-    if (result.speak && result.message && (!session.muted || subCmd === "unmute")) {
+    if (result.speak && result.message && isActive(sessionId)) {
       const freshConfig = loadConfig();
       await speakText(result.message, freshConfig);
     }
     return;
   }
-  if (session.muted) {
-    debug2("EXIT: muted");
+  if (!isActive(sessionId)) {
+    debug2("EXIT: session not active");
     return;
   }
   const sayIndex = args.indexOf("--say");
@@ -14032,16 +14418,24 @@ async function run(args, stdin) {
   let isActiveVoice = false;
   if (sayIndex !== -1 && args[sayIndex + 1]) {
     writeLock(getLockPath());
+    if (sessionId) setSpokeThisTurn(sessionId, true);
     text = args[sayIndex + 1];
     isActiveVoice = true;
   } else if (triggerIndex !== -1 && args[triggerIndex + 1]) {
     const triggerType = args[triggerIndex + 1];
     if (!config.hooks[triggerType]) return;
-    const lockPath = getLockPath();
-    debug2(`lockPath=${lockPath} cooldown=${config.cooldown} locked=${isLocked(lockPath, config.cooldown)}`);
-    if (isLocked(lockPath, config.cooldown)) {
-      debug2("EXIT: locked by active voice");
-      return;
+    if (triggerType === "stop") {
+      if (sessionId && consumeSpokeThisTurn(sessionId)) {
+        debug2("EXIT: active voice already spoke this turn");
+        return;
+      }
+    } else {
+      const lockPath = getLockPath();
+      debug2(`lockPath=${lockPath} cooldown=${config.cooldown} locked=${isLocked(lockPath, config.cooldown)}`);
+      if (isLocked(lockPath, config.cooldown)) {
+        debug2("EXIT: locked");
+        return;
+      }
     }
     text = extractMessage(stdin);
     debug2(`extracted text=${text ? text.slice(0, 100) : "null"}`);
@@ -14056,6 +14450,14 @@ async function run(args, stdin) {
   if (!text) {
     debug2("EXIT: no text");
     return;
+  }
+  const requestedAt = Date.now();
+  if (!isActiveVoice) {
+    text = await condenseForSpeech(text, config);
+    if (!text) {
+      debug2("EXIT: condensed to nothing");
+      return;
+    }
   }
   const apiKey = config.apiKeys[config.activeProvider];
   if (!apiKey) {
@@ -14080,6 +14482,10 @@ async function run(args, stdin) {
       similarityBoost: providerConfig?.similarityBoost,
       style: providerConfig?.style
     });
+    if (stopRequestedSince(requestedAt)) {
+      debug2("EXIT: stop requested since the message was prepared");
+      return;
+    }
     playAudio(audio, config.playback.command);
     if (isActiveVoice) {
       writeLock(getLockPath());
