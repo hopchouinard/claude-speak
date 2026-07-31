@@ -103,6 +103,73 @@ describe('playAudio pid tracking', () => {
   });
 });
 
+describe('playAudio single-stream invariant', () => {
+  beforeEach(() => {
+    vi.spyOn(os, 'homedir').mockReturnValue('/mock/home');
+    vi.mocked(os.tmpdir).mockReturnValue('/tmp');
+    vi.mocked(fs.mkdtempSync).mockReturnValue('/tmp/claude-speak-abc');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('stops a stream that is already playing before starting a new one', () => {
+    // Otherwise the earlier pid is overwritten in playback.json and becomes
+    // unaddressable: `!shutup` could only ever silence the newest stream.
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ pid: 111, sessionId: 'sess-a' }));
+    const kill = vi.spyOn(process, 'kill').mockReturnValue(true);
+    vi.mocked(child_process.spawn).mockReturnValue({
+      pid: 222,
+      unref: vi.fn(),
+      on: vi.fn(),
+    } as unknown as child_process.ChildProcess);
+
+    playAudio(Buffer.from('audio'), 'afplay', 'sess-b');
+
+    expect(kill).toHaveBeenCalledWith(111, 'SIGTERM');
+    const call = vi
+      .mocked(fs.writeFileSync)
+      .mock.calls.find(([p]) => String(p).endsWith('playback.json'));
+    expect(JSON.parse(call![1] as string).pid).toBe(222);
+  });
+
+  it('does not stamp a stop epoch when it clears the previous stream', () => {
+    // Stamping here would discard another session's not-yet-playing audio.
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ pid: 111 }));
+    vi.spyOn(process, 'kill').mockReturnValue(true);
+    vi.mocked(child_process.spawn).mockReturnValue({
+      pid: 222,
+      unref: vi.fn(),
+      on: vi.fn(),
+    } as unknown as child_process.ChildProcess);
+
+    playAudio(Buffer.from('audio'), 'afplay', 'sess-b');
+
+    const epochWrite = vi
+      .mocked(fs.writeFileSync)
+      .mock.calls.find(([p]) => String(p).endsWith('stop-epoch'));
+    expect(epochWrite).toBeUndefined();
+  });
+
+  it('records the session that owns the playback', () => {
+    vi.mocked(child_process.spawn).mockReturnValue({
+      pid: 4242,
+      unref: vi.fn(),
+      on: vi.fn(),
+    } as unknown as child_process.ChildProcess);
+
+    playAudio(Buffer.from('audio'), 'afplay', 'sess-1');
+
+    const call = vi
+      .mocked(fs.writeFileSync)
+      .mock.calls.find(([p]) => String(p).endsWith('playback.json'));
+    expect(JSON.parse(call![1] as string).sessionId).toBe('sess-1');
+  });
+});
+
 describe('stopPlayback', () => {
   beforeEach(() => {
     vi.spyOn(os, 'homedir').mockReturnValue('/mock/home');
@@ -197,5 +264,111 @@ describe('readStopEpoch', () => {
     vi.mocked(fs.readFileSync).mockReturnValue('garbage');
     const { readStopEpoch } = await import('../src/player.js');
     expect(readStopEpoch()).toBe(0);
+  });
+});
+
+describe('stop-epoch session scoping', () => {
+  beforeEach(() => {
+    vi.spyOn(os, 'homedir').mockReturnValue('/mock/home');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('records the session that stamped a scoped stop', async () => {
+    const { stopPlayback } = await import('../src/player.js');
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+
+    stopPlayback('sess-1');
+
+    const call = vi
+      .mocked(fs.writeFileSync)
+      .mock.calls.find(([p]) => String(p).endsWith('stop-epoch'));
+    expect(JSON.parse(call![1] as string).sessionId).toBe('sess-1');
+  });
+
+  it('records no session for a global stop', async () => {
+    const { stopPlayback } = await import('../src/player.js');
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+
+    stopPlayback(null);
+
+    const call = vi
+      .mocked(fs.writeFileSync)
+      .mock.calls.find(([p]) => String(p).endsWith('stop-epoch'));
+    expect(JSON.parse(call![1] as string).sessionId).toBeNull();
+  });
+
+  it('hides another session’s stop from this session', async () => {
+    // Window B submitting a prompt must not discard window A's pending audio.
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(
+      JSON.stringify({ epoch: 1785000000000, sessionId: 'sess-b' }),
+    );
+    const { readStopEpoch } = await import('../src/player.js');
+    expect(readStopEpoch('sess-a')).toBe(0);
+  });
+
+  it('honours a stop stamped by the same session', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(
+      JSON.stringify({ epoch: 1785000000000, sessionId: 'sess-a' }),
+    );
+    const { readStopEpoch } = await import('../src/player.js');
+    expect(readStopEpoch('sess-a')).toBe(1785000000000);
+  });
+
+  it('honours an unattributed global stop for every session', async () => {
+    // `!shutup` is a panic button: silence the machine, whoever asked.
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(
+      JSON.stringify({ epoch: 1785000000000, sessionId: null }),
+    );
+    const { readStopEpoch } = await import('../src/player.js');
+    expect(readStopEpoch('sess-a')).toBe(1785000000000);
+  });
+
+  it('treats a legacy bare-number epoch as global', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue('1785000000000');
+    const { readStopEpoch } = await import('../src/player.js');
+    expect(readStopEpoch('sess-a')).toBe(1785000000000);
+  });
+});
+
+describe('readPlaybackState', () => {
+  beforeEach(() => {
+    vi.spyOn(os, 'homedir').mockReturnValue('/mock/home');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns null when nothing is playing', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    const { readPlaybackState } = await import('../src/player.js');
+    expect(readPlaybackState()).toBeNull();
+  });
+
+  it('returns the recorded pid and owning session', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(
+      JSON.stringify({ pid: 4242, startedAt: 1785000000000, sessionId: 'sess-1' }),
+    );
+    const { readPlaybackState } = await import('../src/player.js');
+    expect(readPlaybackState()).toEqual({
+      pid: 4242,
+      startedAt: 1785000000000,
+      sessionId: 'sess-1',
+    });
+  });
+
+  it('returns null for a corrupt playback file', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue('not json');
+    const { readPlaybackState } = await import('../src/player.js');
+    expect(readPlaybackState()).toBeNull();
   });
 });

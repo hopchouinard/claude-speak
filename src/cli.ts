@@ -43,12 +43,16 @@ async function condenseForSpeech(text: string, config: VoiceConfig): Promise<str
  * Synthesis takes 1-2 seconds. A stop request arriving in that window would
  * otherwise kill a pid that does not exist yet, and audio would begin after
  * the user asked for silence.
+ *
+ * Scoped to the calling session: the stop epoch is machine-global, and an
+ * unscoped read lets one window's prompt submission discard another window's
+ * narration outright (see stopPlayback in player.ts).
  */
-function stopRequestedSince(requestedAt: number): boolean {
-  return readStopEpoch() > requestedAt;
+function stopRequestedSince(requestedAt: number, sessionId: string | null): boolean {
+  return readStopEpoch(sessionId) > requestedAt;
 }
 
-async function speakText(text: string, config: VoiceConfig): Promise<void> {
+async function speakText(text: string, config: VoiceConfig, sessionId: string | null): Promise<void> {
   const providerConfig = config.providers[config.activeProvider];
   const apiKey = config.apiKeys[config.activeProvider as keyof typeof config.apiKeys];
 
@@ -65,6 +69,11 @@ async function speakText(text: string, config: VoiceConfig): Promise<void> {
 
   try {
     const provider = createProvider(config.activeProvider, config.apiKeys);
+    // Stamped immediately before synthesis, unlike run()'s copy of this guard,
+    // which stamps before condensation. The difference is deliberate: this
+    // path has no condensation step to cover. The duplication is deliberate
+    // too — any future shared extraction must preserve BOTH stamp positions,
+    // or one of the two paths loses part of its stop window.
     const requestedAt = Date.now();
     const audio = await provider.synthesize(sanitized, {
       voice: providerConfig?.voice ?? 'ash',
@@ -77,12 +86,12 @@ async function speakText(text: string, config: VoiceConfig): Promise<void> {
       style: providerConfig?.style,
     });
 
-    if (stopRequestedSince(requestedAt)) {
+    if (stopRequestedSince(requestedAt, sessionId)) {
       debug('EXIT: stop requested during synthesis');
       return;
     }
 
-    playAudio(audio, config.playback.command);
+    playAudio(audio, config.playback.command, sessionId);
   } catch (err) {
     debug(`TTS ERROR: ${err instanceof Error ? err.message : String(err)}`);
     handleError(err, config.logFile);
@@ -119,7 +128,7 @@ export async function run(args: string[], stdin: string): Promise<void> {
     if (result.speak && result.message && isActive(sessionId)) {
       // Reload config in case the subcommand changed it (e.g., provider, speed, voice)
       const freshConfig = loadConfig();
-      await speakText(result.message, freshConfig);
+      await speakText(result.message, freshConfig, sessionId);
     }
     return;
   }
@@ -179,6 +188,10 @@ export async function run(args: string[], stdin: string): Promise<void> {
   // summarizer can block for seconds, and that window is widest exactly when
   // the network is degraded — which is when a user is most likely to give up
   // and hit stop. A stop landing anywhere from here to playback is honoured.
+  //
+  // speakText() carries a near-identical guard stamped just before synthesis.
+  // The duplication is deliberate and the two stamp positions are not
+  // interchangeable: extracting a shared helper must preserve both.
   const requestedAt = Date.now();
 
   // Condensation is passive-path only: active voice text is hand written for
@@ -217,12 +230,12 @@ export async function run(args: string[], stdin: string): Promise<void> {
       style: providerConfig?.style,
     });
 
-    if (stopRequestedSince(requestedAt)) {
+    if (stopRequestedSince(requestedAt, sessionId)) {
       debug('EXIT: stop requested since the message was prepared');
       return;
     }
 
-    playAudio(audio, config.playback.command);
+    playAudio(audio, config.playback.command, sessionId);
 
     // Refresh lock after playback starts so the Stop hook sees a fresh timestamp
     if (isActiveVoice) {

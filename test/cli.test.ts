@@ -412,7 +412,58 @@ describe('stop during synthesis', () => {
 
     expect(player.playAudio).toHaveBeenCalled();
   });
+
+  it('discards audio when a stop lands during synthesis on the subcommand path', async () => {
+    // Pins the second, deliberately duplicated stop guard in speakText().
+    // Without it this path plays audio the user already asked to silence.
+    vi.mocked(subcommands.dispatch).mockResolvedValue({
+      message: 'a test phrase',
+      speak: true,
+    });
+    mockSynthesize.mockImplementation(async () => {
+      vi.mocked(player.readStopEpoch).mockReturnValue(Date.now() + 1000);
+      return Buffer.from('audio');
+    });
+
+    await run(['--cmd', 'test'], '');
+
+    expect(mockSynthesize).toHaveBeenCalled();
+    expect(player.playAudio).not.toHaveBeenCalled();
+  });
 });
+
+describe('per-session stop scoping', () => {
+  it('scopes the stop-epoch check to this session', async () => {
+    // A prompt submitted in another window stamps the machine-global epoch.
+    // Reading it unscoped would silently discard this window's narration.
+    vi.mocked(extractor.extractMessage).mockReturnValue('hello');
+
+    await run(['--trigger', 'stop'], '{}');
+
+    expect(player.readStopEpoch).toHaveBeenCalledWith('sess-1');
+  });
+
+  it('records the owning session when it starts playback', async () => {
+    vi.mocked(extractor.extractMessage).mockReturnValue('hello');
+
+    await run(['--trigger', 'stop'], '{}');
+
+    expect(player.playAudio).toHaveBeenCalledWith(expect.any(Buffer), 'afplay', 'sess-1');
+  });
+
+  it('scopes the stop-epoch check on the subcommand path too', async () => {
+    vi.mocked(subcommands.dispatch).mockResolvedValue({
+      message: 'a test phrase',
+      speak: true,
+    });
+
+    await run(['--cmd', 'test'], '');
+
+    expect(player.readStopEpoch).toHaveBeenCalledWith('sess-1');
+    expect(player.playAudio).toHaveBeenCalledWith(expect.any(Buffer), 'afplay', 'sess-1');
+  });
+});
+
 
 // Fake timers, because the whole point is that measurable time passes between
 // the moment the request is stamped and the moment synthesis starts.

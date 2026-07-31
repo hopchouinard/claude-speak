@@ -13919,7 +13919,33 @@ function clearPlaybackFile() {
   } catch {
   }
 }
-function playAudio(audio, command) {
+function readPlaybackState() {
+  const filePath = getPlaybackPath();
+  if (!fs5.existsSync(filePath)) return null;
+  try {
+    const parsed = JSON.parse(fs5.readFileSync(filePath, "utf-8"));
+    if (typeof parsed.pid !== "number") return null;
+    return {
+      pid: parsed.pid,
+      startedAt: typeof parsed.startedAt === "number" ? parsed.startedAt : 0,
+      sessionId: typeof parsed.sessionId === "string" ? parsed.sessionId : null
+    };
+  } catch {
+    return null;
+  }
+}
+function killTrackedPlayback() {
+  const state = readPlaybackState();
+  if (state) {
+    try {
+      process.kill(state.pid, "SIGTERM");
+    } catch {
+    }
+  }
+  clearPlaybackFile();
+}
+function playAudio(audio, command, sessionId = null) {
+  killTrackedPlayback();
   const tmpDir = fs5.mkdtempSync(path4.join(os3.tmpdir(), "claude-speak-"));
   const filePath = path4.join(tmpDir, "output.mp3");
   fs5.writeFileSync(filePath, audio);
@@ -13932,7 +13958,7 @@ function playAudio(audio, command) {
       fs5.mkdirSync(stateDir(), { recursive: true });
       fs5.writeFileSync(
         getPlaybackPath(),
-        JSON.stringify({ pid: child.pid, startedAt: Date.now() }, null, 2),
+        JSON.stringify({ pid: child.pid, startedAt: Date.now(), sessionId }, null, 2),
         "utf-8"
       );
     } catch {
@@ -13948,35 +13974,49 @@ function playAudio(audio, command) {
   });
   child.unref();
 }
-function stopPlayback() {
+function stopPlayback(scopeSessionId = null) {
   try {
     fs5.mkdirSync(stateDir(), { recursive: true });
-    fs5.writeFileSync(getStopEpochPath(), String(Date.now()), "utf-8");
+    fs5.writeFileSync(
+      getStopEpochPath(),
+      JSON.stringify({ epoch: Date.now(), sessionId: scopeSessionId }),
+      "utf-8"
+    );
   } catch {
   }
-  const filePath = getPlaybackPath();
-  if (!fs5.existsSync(filePath)) return;
+  killTrackedPlayback();
+}
+function readStopRecord() {
+  const filePath = getStopEpochPath();
+  if (!fs5.existsSync(filePath)) return null;
+  let raw;
   try {
-    const { pid } = JSON.parse(fs5.readFileSync(filePath, "utf-8"));
-    if (typeof pid === "number") {
-      try {
-        process.kill(pid, "SIGTERM");
-      } catch {
+    raw = fs5.readFileSync(filePath, "utf-8");
+  } catch {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed === "number") return { epoch: parsed, sessionId: null };
+    if (parsed && typeof parsed === "object") {
+      const record = parsed;
+      if (typeof record.epoch === "number") {
+        return {
+          epoch: record.epoch,
+          sessionId: typeof record.sessionId === "string" ? record.sessionId : null
+        };
       }
     }
   } catch {
   }
-  clearPlaybackFile();
+  return null;
 }
-function readStopEpoch() {
-  const filePath = getStopEpochPath();
-  if (!fs5.existsSync(filePath)) return 0;
-  try {
-    const value = Number(fs5.readFileSync(filePath, "utf-8"));
-    return Number.isNaN(value) ? 0 : value;
-  } catch {
-    return 0;
-  }
+function readStopEpoch(forSessionId) {
+  const record = readStopRecord();
+  if (!record) return 0;
+  if (!forSessionId) return record.epoch;
+  if (record.sessionId && record.sessionId !== forSessionId) return 0;
+  return record.epoch;
 }
 
 // src/lock.ts
@@ -14116,11 +14156,11 @@ async function handleOff(sessionId) {
   return { message: "Voice output off for this session.", speak: false };
 }
 async function handleStop() {
-  stopPlayback();
+  stopPlayback(null);
   return { message: "", speak: false };
 }
 async function handleTurnStart(sessionId) {
-  stopPlayback();
+  stopPlayback(sessionId);
   if (sessionId) setSpokeThisTurn(sessionId, false);
   return { message: "", speak: false };
 }
@@ -14344,10 +14384,10 @@ async function condenseForSpeech(text, config) {
   debug2("condensing: summarizer unavailable, using heuristic");
   return heuristicCondense(text, config.speech.maxChars);
 }
-function stopRequestedSince(requestedAt) {
-  return readStopEpoch() > requestedAt;
+function stopRequestedSince(requestedAt, sessionId) {
+  return readStopEpoch(sessionId) > requestedAt;
 }
-async function speakText(text, config) {
+async function speakText(text, config, sessionId) {
   const providerConfig = config.providers[config.activeProvider];
   const apiKey = config.apiKeys[config.activeProvider];
   if (!apiKey) {
@@ -14372,11 +14412,11 @@ async function speakText(text, config) {
       similarityBoost: providerConfig?.similarityBoost,
       style: providerConfig?.style
     });
-    if (stopRequestedSince(requestedAt)) {
+    if (stopRequestedSince(requestedAt, sessionId)) {
       debug2("EXIT: stop requested during synthesis");
       return;
     }
-    playAudio(audio, config.playback.command);
+    playAudio(audio, config.playback.command, sessionId);
   } catch (err) {
     debug2(`TTS ERROR: ${err instanceof Error ? err.message : String(err)}`);
     handleError(err, config.logFile);
@@ -14404,7 +14444,7 @@ async function run(args, stdin) {
     if (result.message) process.stdout.write(result.message + "\n");
     if (result.speak && result.message && isActive(sessionId)) {
       const freshConfig = loadConfig();
-      await speakText(result.message, freshConfig);
+      await speakText(result.message, freshConfig, sessionId);
     }
     return;
   }
@@ -14482,11 +14522,11 @@ async function run(args, stdin) {
       similarityBoost: providerConfig?.similarityBoost,
       style: providerConfig?.style
     });
-    if (stopRequestedSince(requestedAt)) {
+    if (stopRequestedSince(requestedAt, sessionId)) {
       debug2("EXIT: stop requested since the message was prepared");
       return;
     }
-    playAudio(audio, config.playback.command);
+    playAudio(audio, config.playback.command, sessionId);
     if (isActiveVoice) {
       writeLock(getLockPath());
     }

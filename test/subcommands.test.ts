@@ -378,7 +378,21 @@ describe('stop and turn-start subcommands', () => {
     expect(result.message).toBe('');
     expect(result.speak).toBe(false);
   });
+
+  it('turn-start scopes its stop to the submitting session', async () => {
+    // One window's prompt must not discard another window's pending audio.
+    const { dispatch } = await import('../src/subcommands.js');
+    await dispatch('turn-start', [], 'sess-1');
+    expect(player.stopPlayback).toHaveBeenCalledWith('sess-1');
+  });
+
+  it('stop is global, so !shutup silences whatever is audible', async () => {
+    const { dispatch } = await import('../src/subcommands.js');
+    await dispatch('stop', [], 'sess-1');
+    expect(player.stopPlayback).toHaveBeenCalledWith(null);
+  });
 });
+
 
 describe('status output', () => {
   beforeEach(async () => {

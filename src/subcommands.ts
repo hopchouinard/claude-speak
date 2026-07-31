@@ -59,13 +59,24 @@ async function handleOff(sessionId: string | null): Promise<SubcommandResult> {
   return { message: 'Voice output off for this session.', speak: false };
 }
 
+/**
+ * `!shutup`. A global stop: silence the machine and discard every session's
+ * pending audio, because the user asked for quiet and cannot tell which
+ * window is talking.
+ */
 async function handleStop(): Promise<SubcommandResult> {
-  stopPlayback();
+  stopPlayback(null);
   return { message: '', speak: false };
 }
 
+/**
+ * UserPromptSubmit. A stop scoped to the submitting session: it still kills
+ * whatever is audible, but it must not discard another window's pending
+ * narration — that message is never retried, and the user of that window
+ * asked for nothing.
+ */
 async function handleTurnStart(sessionId: string | null): Promise<SubcommandResult> {
-  stopPlayback();
+  stopPlayback(sessionId);
   if (sessionId) setSpokeThisTurn(sessionId, false);
   return { message: '', speak: false };
 }
