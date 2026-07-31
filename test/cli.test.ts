@@ -372,6 +372,23 @@ describe('condensation', () => {
     expect(mockSynthesize).toHaveBeenCalledWith('A hand written line.', expect.anything());
   });
 
+  it('speaks a fallback line when the heuristic condenses the message to nothing', async () => {
+    // A message that is only a table or only a code fence strips to empty.
+    // Silence there is a regression from 1.x, which read something aloud.
+    vi.mocked(extractor.extractMessage).mockReturnValue('| a | b |\n|---|---|\n| 1 | 2 |');
+    vi.mocked(condenser.shouldCondense).mockReturnValue(true);
+    vi.mocked(summarizer.summarizeForSpeech).mockResolvedValue(null);
+    vi.mocked(condenser.heuristicCondense).mockReturnValue('');
+
+    await run(['--trigger', 'stop'], '{}');
+
+    expect(mockSynthesize).toHaveBeenCalledTimes(1);
+    const spoken = mockSynthesize.mock.calls[0][0] as string;
+    expect(spoken.length).toBeGreaterThan(0);
+    expect(spoken).toMatch(/screen/i);
+    expect(player.playAudio).toHaveBeenCalled();
+  });
+
   it('skips condensation entirely when disabled in config', async () => {
     vi.mocked(config.loadConfig).mockReturnValue(makeConfig({
       speech: {

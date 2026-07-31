@@ -14375,6 +14375,7 @@ function debug2(msg) {
   if (DEBUG) process.stderr.write(`[claude-speak] ${msg}
 `);
 }
+var EMPTY_CONDENSE_FALLBACK = "That message does not read aloud well. The details are on screen.";
 async function condenseForSpeech(text, config) {
   if (!config.speech.condense) return text;
   if (!shouldCondense(text, config.speech.maxChars)) return text;
@@ -14382,7 +14383,10 @@ async function condenseForSpeech(text, config) {
   const rewritten = await summarizeForSpeech(text, config);
   if (rewritten) return rewritten;
   debug2("condensing: summarizer unavailable, using heuristic");
-  return heuristicCondense(text, config.speech.maxChars);
+  const condensed = heuristicCondense(text, config.speech.maxChars);
+  if (condensed) return condensed;
+  debug2("condensing: heuristic left nothing, speaking the fallback");
+  return EMPTY_CONDENSE_FALLBACK;
 }
 function stopRequestedSince(requestedAt, sessionId) {
   return readStopEpoch(sessionId) > requestedAt;

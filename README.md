@@ -215,6 +215,19 @@ Controls how long or structured messages are condensed before being spoken.
 Tables, code blocks, and lists of 5 or more items are always condensed
 regardless of length — those are the cases that are genuinely unlistenable.
 
+**The summarizer needs an OpenAI key, whichever TTS provider you use.** The
+rewrite tier calls the OpenAI chat completions API directly, so it is skipped
+unless `OPENAI_API_KEY` (or the keychain-stored plugin option) is set. If you
+run ElevenLabs for speech and have no OpenAI key, everything still works —
+condensation just drops straight to the deterministic heuristic, which cuts
+tables, code blocks and long lists rather than rewriting them. Set both keys
+if you want the better summaries; only `ELEVENLABS_API_KEY` is required to
+hear anything at all.
+
+If condensation strips a message down to nothing — a message that was *only* a
+table, or *only* a fenced code block — a short fixed line is spoken instead of
+silence, pointing you at the screen for the detail.
+
 ### `enabled`
 
 A hard global kill switch, set via the `CLAUDE_SPEAK_ENABLED` environment

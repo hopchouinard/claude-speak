@@ -22,10 +22,19 @@ function debug(msg: string): void {
 }
 
 /**
+ * Spoken when condensation strips a message to nothing — a message that is
+ * only a table or only a fenced code block has no extractive summary. Silence
+ * would look like a broken plugin, so say that something happened and point at
+ * the screen for the detail.
+ */
+const EMPTY_CONDENSE_FALLBACK = 'That message does not read aloud well. The details are on screen.';
+
+/**
  * Condense passive-path text that is too long or too structured to speak.
  *
  * Tier order: LLM rewrite, then the deterministic heuristic. Never returns the
- * raw text once shouldCondense has said it is unlistenable.
+ * raw text once shouldCondense has said it is unlistenable, and never returns
+ * empty once it has decided to condense something.
  */
 async function condenseForSpeech(text: string, config: VoiceConfig): Promise<string> {
   if (!config.speech.condense) return text;
@@ -36,7 +45,11 @@ async function condenseForSpeech(text: string, config: VoiceConfig): Promise<str
   if (rewritten) return rewritten;
 
   debug('condensing: summarizer unavailable, using heuristic');
-  return heuristicCondense(text, config.speech.maxChars);
+  const condensed = heuristicCondense(text, config.speech.maxChars);
+  if (condensed) return condensed;
+
+  debug('condensing: heuristic left nothing, speaking the fallback');
+  return EMPTY_CONDENSE_FALLBACK;
 }
 
 /**
