@@ -267,6 +267,11 @@ describe('CLI run', () => {
 
     expect(subcommands.dispatch).not.toHaveBeenCalled();
     expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('Usage:'));
+    // The list must name the command that turns the feature on, or a mistyped
+    // subcommand leaves the user with no way to discover it.
+    const usage = stdoutSpy.mock.calls[0][0] as string;
+    expect(usage).toMatch(/\bon\b/);
+    expect(usage).toMatch(/\boff\b/);
     stdoutSpy.mockRestore();
   });
 });
@@ -402,6 +407,52 @@ describe('stop during synthesis', () => {
   it('plays audio when no stop was requested', async () => {
     vi.mocked(extractor.extractMessage).mockReturnValue('hello');
     vi.mocked(player.readStopEpoch).mockReturnValue(0);
+
+    await run(['--trigger', 'stop'], '{}');
+
+    expect(player.playAudio).toHaveBeenCalled();
+  });
+});
+
+// Fake timers, because the whole point is that measurable time passes between
+// the moment the request is stamped and the moment synthesis starts.
+describe('stop during condensation', () => {
+  const base = 1_700_000_000_000;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(base);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('discards audio when a stop lands while the summarizer is still in flight', async () => {
+    vi.mocked(extractor.extractMessage).mockReturnValue('a very long message with a table');
+    vi.mocked(condenser.shouldCondense).mockReturnValue(true);
+    vi.mocked(summarizer.summarizeForSpeech).mockImplementation(async () => {
+      // The summarizer blocks for five seconds. One second in, the user gives
+      // up and hits stop — long before synthesis is ever reached.
+      vi.mocked(player.readStopEpoch).mockReturnValue(base + 1000);
+      vi.setSystemTime(base + 5000);
+      return 'Two bugs fixed.';
+    });
+
+    await run(['--trigger', 'stop'], '{}');
+
+    // Condensation ran to completion and synthesis was attempted...
+    expect(mockSynthesize).toHaveBeenCalledWith('Two bugs fixed.', expect.anything());
+    // ...but the audio is thrown away, because the stop predates the request.
+    expect(player.playAudio).not.toHaveBeenCalled();
+  });
+
+  it('plays audio when the stop epoch predates the request, as at turn start', async () => {
+    // The UserPromptSubmit hook stamps the stop epoch when the turn begins,
+    // which is always older than a request stamped later in the same turn. An
+    // earlier stamp must not make a turn swallow its own end-of-turn message.
+    vi.mocked(player.readStopEpoch).mockReturnValue(base - 1000);
+    vi.mocked(extractor.extractMessage).mockReturnValue('hello');
 
     await run(['--trigger', 'stop'], '{}');
 

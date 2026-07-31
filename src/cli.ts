@@ -105,7 +105,10 @@ export async function run(args: string[], stdin: string): Promise<void> {
   if (cmdIndex !== -1) {
     const subCmd = args[cmdIndex + 1];
     if (!subCmd) {
-      process.stdout.write('Usage: --cmd <subcommand> [args]\nAvailable: mute, unmute, provider, speed, voice, voices, status, test\n');
+      // Mirrors AVAILABLE_COMMANDS in subcommands.ts. `stop` and `turn-start`
+      // are deliberately absent: they are internal entry points for bin/shutup
+      // and the UserPromptSubmit hook, not commands to advertise here.
+      process.stdout.write('Usage: --cmd <subcommand> [args]\nAvailable: on, off, mute, unmute, provider, speed, voice, voices, status, test\n');
       return;
     }
     const subArgs = args.slice(cmdIndex + 2);
@@ -172,6 +175,12 @@ export async function run(args: string[], stdin: string): Promise<void> {
 
   if (!text) { debug('EXIT: no text'); return; }
 
+  // Stamped before condensation rather than immediately before synthesis: the
+  // summarizer can block for seconds, and that window is widest exactly when
+  // the network is degraded — which is when a user is most likely to give up
+  // and hit stop. A stop landing anywhere from here to playback is honoured.
+  const requestedAt = Date.now();
+
   // Condensation is passive-path only: active voice text is hand written for
   // the ear already, and rewriting it would only degrade it.
   if (!isActiveVoice) {
@@ -197,7 +206,6 @@ export async function run(args: string[], stdin: string): Promise<void> {
   try {
     const providerConfig = config.providers[config.activeProvider];
     const provider = createProvider(config.activeProvider, config.apiKeys);
-    const requestedAt = Date.now();
     const audio = await provider.synthesize(sanitized, {
       voice: providerConfig?.voice ?? 'ash',
       model: providerConfig?.model ?? 'gpt-4o-mini-tts-2025-12-15',
@@ -210,7 +218,7 @@ export async function run(args: string[], stdin: string): Promise<void> {
     });
 
     if (stopRequestedSince(requestedAt)) {
-      debug('EXIT: stop requested during synthesis');
+      debug('EXIT: stop requested since the message was prepared');
       return;
     }
 
