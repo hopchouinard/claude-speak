@@ -1,0 +1,6 @@
+#!/bin/sh
+# Silence any in-flight claude-speak narration. Fast path: runs directly in the
+# shell via `!shutup` at the Claude Code prompt, with no model turn.
+ROOT="$(cat "$HOME/.claude-speak/plugin-root" 2>/dev/null)"
+[ -n "$ROOT" ] || exit 0
+exec node "$ROOT/dist/cli.js" --cmd stop

@@ -9,8 +9,8 @@ EXAMPLE_CONFIG="${CLAUDE_PLUGIN_ROOT}/claude-speak.example.json"
 HAS_ISSUES=false
 ISSUES=""
 
-# Clean session state from previous session (fresh start)
-rm -f "$HOME/.claude-speak/session.json"
+# Garbage-collect stale per-session state (and the legacy 1.x session.json).
+node "${CLAUDE_PLUGIN_ROOT}/dist/cli.js" --cmd gc >/dev/null 2>&1 || true
 
 # Check for API key from any source: keychain (plugin options), env file, or shell env
 HAS_API_KEY=false
@@ -44,5 +44,12 @@ if [ "$HAS_ISSUES" = true ]; then
 }
 EOF
 else
-  echo '{"hookSpecificOutput":{"hookEventName":"SessionStart"}}'
+  cat <<EOF
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "## claude-speak\n\nVoice output is **off** for this session. It is off by default in every session and must be activated deliberately.\n\n- To activate: run \`/speak on\`.\n- Until then, do NOT write final messages for the ear and do NOT use the speak skill — nothing will be audible.\n- The user can silence in-flight narration at any time by typing \`!shutup\`."
+  }
+}
+EOF
 fi

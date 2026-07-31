@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import { loadConfig, getConfigPath, PROVIDER_DEFAULTS } from './config.js';
-import { activate, deactivate, isActive, setSpokeThisTurn } from './session.js';
+import { activate, deactivate, isActive, setSpokeThisTurn, gcSessions } from './session.js';
 import { stopPlayback } from './player.js';
 import { readCache, fetchElevenLabsVoices, writeCache, resolveVoiceName } from './voice-cache.js';
 
@@ -285,6 +285,9 @@ export async function dispatch(
       return handleStop();
     case 'turn-start':
       return handleTurnStart(sessionId);
+    case 'gc':
+      gcSessions();
+      return { message: '', speak: false };
     case 'provider':
       return handleProvider(args);
     case 'speed':
