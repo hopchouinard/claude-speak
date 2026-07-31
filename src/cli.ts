@@ -1,9 +1,16 @@
 import { loadConfig, type VoiceConfig } from './config.js';
-import { loadSession } from './session.js';
+import {
+  resolveSessionId,
+  isActive,
+  setSpokeThisTurn,
+  consumeSpokeThisTurn,
+} from './session.js';
 import { extractMessage } from './extractor.js';
 import { sanitize } from './sanitizer.js';
 import { createProvider } from './tts/factory.js';
-import { playAudio } from './player.js';
+import { shouldCondense, heuristicCondense } from './condenser.js';
+import { summarizeForSpeech } from './summarizer.js';
+import { playAudio, readStopEpoch } from './player.js';
 import { writeLock, isLocked } from './lock.js';
 import { handleError } from './error.js';
 import { dispatch } from './subcommands.js';
@@ -12,6 +19,33 @@ import * as path from 'node:path';
 const DEBUG = process.env.CLAUDE_SPEAK_DEBUG === '1';
 function debug(msg: string): void {
   if (DEBUG) process.stderr.write(`[claude-speak] ${msg}\n`);
+}
+
+/**
+ * Condense passive-path text that is too long or too structured to speak.
+ *
+ * Tier order: LLM rewrite, then the deterministic heuristic. Never returns the
+ * raw text once shouldCondense has said it is unlistenable.
+ */
+async function condenseForSpeech(text: string, config: VoiceConfig): Promise<string> {
+  if (!config.speech.condense) return text;
+  if (!shouldCondense(text, config.speech.maxChars)) return text;
+
+  debug('condensing: over threshold');
+  const rewritten = await summarizeForSpeech(text, config);
+  if (rewritten) return rewritten;
+
+  debug('condensing: summarizer unavailable, using heuristic');
+  return heuristicCondense(text, config.speech.maxChars);
+}
+
+/**
+ * Synthesis takes 1-2 seconds. A stop request arriving in that window would
+ * otherwise kill a pid that does not exist yet, and audio would begin after
+ * the user asked for silence.
+ */
+function stopRequestedSince(requestedAt: number): boolean {
+  return readStopEpoch() > requestedAt;
 }
 
 async function speakText(text: string, config: VoiceConfig): Promise<void> {
@@ -31,6 +65,7 @@ async function speakText(text: string, config: VoiceConfig): Promise<void> {
 
   try {
     const provider = createProvider(config.activeProvider, config.apiKeys);
+    const requestedAt = Date.now();
     const audio = await provider.synthesize(sanitized, {
       voice: providerConfig?.voice ?? 'ash',
       model: providerConfig?.model ?? 'gpt-4o-mini-tts-2025-12-15',
@@ -41,6 +76,11 @@ async function speakText(text: string, config: VoiceConfig): Promise<void> {
       similarityBoost: providerConfig?.similarityBoost,
       style: providerConfig?.style,
     });
+
+    if (stopRequestedSince(requestedAt)) {
+      debug('EXIT: stop requested during synthesis');
+      return;
+    }
 
     playAudio(audio, config.playback.command);
   } catch (err) {
@@ -56,9 +96,11 @@ export async function run(args: string[], stdin: string): Promise<void> {
 
   if (!config.enabled) { debug('EXIT: disabled'); return; }
 
-  const session = loadSession();
+  const sessionId = resolveSessionId(stdin);
+  debug(`sessionId=${sessionId}`);
 
-  // Check for --cmd routing first (must work even when muted, so user can unmute/check status)
+  // Check for --cmd routing first (must work while voice is off, so the user
+  // can turn it on, stop playback, or check status)
   const cmdIndex = args.indexOf('--cmd');
   if (cmdIndex !== -1) {
     const subCmd = args[cmdIndex + 1];
@@ -67,10 +109,11 @@ export async function run(args: string[], stdin: string): Promise<void> {
       return;
     }
     const subArgs = args.slice(cmdIndex + 2);
-    const result = await dispatch(subCmd, subArgs);
+    const result = await dispatch(subCmd, subArgs, sessionId);
     if (result.message) process.stdout.write(result.message + '\n');
-    // Only speak if result requests it AND (not muted OR this is the unmute command)
-    if (result.speak && result.message && (!session.muted || subCmd === 'unmute')) {
+    // Subcommand confirmations obey the activation gate like everything else.
+    // `on` still confirms audibly because handleOn activates before returning.
+    if (result.speak && result.message && isActive(sessionId)) {
       // Reload config in case the subcommand changed it (e.g., provider, speed, voice)
       const freshConfig = loadConfig();
       await speakText(result.message, freshConfig);
@@ -78,8 +121,8 @@ export async function run(args: string[], stdin: string): Promise<void> {
     return;
   }
 
-  // Mute check for non-cmd paths
-  if (session.muted) { debug('EXIT: muted'); return; }
+  // Activation gate for non-cmd paths: voice is off until deliberately enabled.
+  if (!isActive(sessionId)) { debug('EXIT: session not active'); return; }
 
   const sayIndex = args.indexOf('--say');
   const triggerIndex = args.indexOf('--trigger');
@@ -90,6 +133,7 @@ export async function run(args: string[], stdin: string): Promise<void> {
   if (sayIndex !== -1 && args[sayIndex + 1]) {
     // Active voice mode: write lock immediately so the Stop hook sees it
     writeLock(getLockPath());
+    if (sessionId) setSpokeThisTurn(sessionId, true);
     text = args[sayIndex + 1];
     isActiveVoice = true;
   } else if (triggerIndex !== -1 && args[triggerIndex + 1]) {
@@ -99,10 +143,19 @@ export async function run(args: string[], stdin: string): Promise<void> {
     // Check if this hook type is enabled
     if (!config.hooks[triggerType]) return;
 
-    // Check lockfile for active/passive dedup
-    const lockPath = getLockPath();
-    debug(`lockPath=${lockPath} cooldown=${config.cooldown} locked=${isLocked(lockPath, config.cooldown)}`);
-    if (isLocked(lockPath, config.cooldown)) { debug('EXIT: locked by active voice'); return; }
+    if (triggerType === 'stop') {
+      // Exact, turn-scoped dedup. Always consumes the flag.
+      if (sessionId && consumeSpokeThisTurn(sessionId)) {
+        debug('EXIT: active voice already spoke this turn');
+        return;
+      }
+    } else {
+      // Notifications are not turn-scoped — several can fire in one turn — so
+      // the cooldown lock remains the right rate limiter here.
+      const lockPath = getLockPath();
+      debug(`lockPath=${lockPath} cooldown=${config.cooldown} locked=${isLocked(lockPath, config.cooldown)}`);
+      if (isLocked(lockPath, config.cooldown)) { debug('EXIT: locked'); return; }
+    }
 
     text = extractMessage(stdin);
     debug(`extracted text=${text ? text.slice(0, 100) : 'null'}`);
@@ -118,6 +171,13 @@ export async function run(args: string[], stdin: string): Promise<void> {
   }
 
   if (!text) { debug('EXIT: no text'); return; }
+
+  // Condensation is passive-path only: active voice text is hand written for
+  // the ear already, and rewriting it would only degrade it.
+  if (!isActiveVoice) {
+    text = await condenseForSpeech(text, config);
+    if (!text) { debug('EXIT: condensed to nothing'); return; }
+  }
 
   // Check API key for active provider
   const apiKey = config.apiKeys[config.activeProvider as keyof typeof config.apiKeys];
@@ -137,6 +197,7 @@ export async function run(args: string[], stdin: string): Promise<void> {
   try {
     const providerConfig = config.providers[config.activeProvider];
     const provider = createProvider(config.activeProvider, config.apiKeys);
+    const requestedAt = Date.now();
     const audio = await provider.synthesize(sanitized, {
       voice: providerConfig?.voice ?? 'ash',
       model: providerConfig?.model ?? 'gpt-4o-mini-tts-2025-12-15',
@@ -147,6 +208,11 @@ export async function run(args: string[], stdin: string): Promise<void> {
       similarityBoost: providerConfig?.similarityBoost,
       style: providerConfig?.style,
     });
+
+    if (stopRequestedSince(requestedAt)) {
+      debug('EXIT: stop requested during synthesis');
+      return;
+    }
 
     playAudio(audio, config.playback.command);
 
