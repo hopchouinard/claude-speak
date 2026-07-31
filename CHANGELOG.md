@@ -10,6 +10,11 @@
   state now lives in `~/.claude-speak/sessions/<session_id>.json`.
 - `/speak on` and `/speak off` are the canonical activation commands.
   `mute` and `unmute` remain as aliases.
+- **Claude Code's own notifications are no longer spoken by default.**
+  `hooks.notification` now defaults to `false`. That hook receives system
+  strings — away summaries, recaps, permission prompts — which are not the
+  assistant's words and never appear on screen, so speaking them produced
+  narration with no visible source. Set `"notification": true` to opt in.
 
 ### Added
 

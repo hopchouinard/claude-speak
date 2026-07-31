@@ -97,7 +97,13 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function getSharedDefaults() {
   return {
-    hooks: { stop: true, notification: true },
+    // Notification speech is off by default. The Notification hook receives
+    // Claude Code's own system strings — away summaries, recaps, permission
+    // prompts — which are neither the assistant's words nor visible on screen,
+    // so speaking them produces narration the user never asked for and cannot
+    // find in the transcript. That is the exact thing this release exists to
+    // stop. Set "notification": true to opt back in.
+    hooks: { stop: true, notification: false },
     playback: { command: detectPlaybackCommand() },
     speech: {
       maxChars: 500,

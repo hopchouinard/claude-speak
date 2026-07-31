@@ -166,7 +166,7 @@ The configuration file lives at `~/.claude-speak.json`. It uses a nested provide
   },
   "hooks": {
     "stop": true,
-    "notification": true
+    "notification": false
   },
   "playback": {
     "command": "afplay"
@@ -194,7 +194,7 @@ The configuration file lives at `~/.claude-speak.json`. It uses a nested provide
 |-------|------|---------|-------------|
 | `activeProvider` | `string` | `"openai"` | Which provider to use. `"openai"` or `"elevenlabs"`. |
 | `hooks.stop` | `boolean` | `true` | Enable the Stop hook (speaks Claude's final message at end of turn). |
-| `hooks.notification` | `boolean` | `true` | Enable the Notification hook (speaks when Claude sends a notification). |
+| `hooks.notification` | `boolean` | `false` | Speak Claude Code's own notifications. **Off by default** — these are system strings such as away summaries, recaps and permission prompts. They are not the assistant's words and never appear on screen, so speaking them produces narration you cannot find anywhere in the conversation. Set `true` to opt in. |
 | `playback.command` | `string` | Auto-detected | Audio playback command. Auto-detects `afplay` on macOS or `paplay` on Linux. |
 | `cooldown` | `number` | `15` | Seconds after an active voice event during which the passive hook will not fire. |
 | `timeout` | `number` | `30` | Maximum seconds to wait for the TTS API before giving up. |

@@ -18,7 +18,7 @@
   },
   "hooks": {
     "stop": true,
-    "notification": true
+    "notification": false
   },
   "playback": {
     "command": "afplay"

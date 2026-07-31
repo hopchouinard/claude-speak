@@ -314,3 +314,39 @@ describe('loadConfig', () => {
     });
   });
 });
+
+// The Notification hook speaks Claude Code's own system strings — away
+// summaries, recaps, permission prompts — which are neither the assistant's
+// words nor visible on screen. Speaking them by default contradicts the
+// release's premise that nothing speaks unless asked.
+describe('notification hook default', () => {
+  it('is off when no config file exists', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    const { loadConfig } = await import('../src/config.js');
+    const config = loadConfig();
+    expect(config.hooks.notification).toBe(false);
+    expect(config.hooks.stop).toBe(true);
+  });
+
+  it('is off when the config file omits the hooks block', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(
+      JSON.stringify({ activeProvider: 'openai', providers: { openai: { model: 'm', voice: 'ash', speed: 1 } } }),
+    );
+    const { loadConfig } = await import('../src/config.js');
+    expect(loadConfig().hooks.notification).toBe(false);
+  });
+
+  it('can be opted back in explicitly', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(
+      JSON.stringify({
+        activeProvider: 'openai',
+        providers: { openai: { model: 'm', voice: 'ash', speed: 1 } },
+        hooks: { stop: true, notification: true },
+      }),
+    );
+    const { loadConfig } = await import('../src/config.js');
+    expect(loadConfig().hooks.notification).toBe(true);
+  });
+});
