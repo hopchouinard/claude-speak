@@ -6766,10 +6766,36 @@ function getSharedDefaults() {
     logFile: path.join(os.homedir(), ".claude-speak", "logs", "voice.log")
   };
 }
+function readEnvFile() {
+  const result = {};
+  let raw;
+  try {
+    raw = fs.readFileSync(path.join(os.homedir(), ".claude-speak", "env"), "utf-8");
+  } catch {
+    return result;
+  }
+  if (typeof raw !== "string") return result;
+  for (const line of raw.split("\n")) {
+    const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
+    if (!match) continue;
+    const [, name] = match;
+    let value = match[2].trim();
+    const quote = value[0];
+    if ((quote === '"' || quote === "'") && value.length > 1 && value.endsWith(quote)) {
+      value = value.slice(1, -1);
+    } else {
+      value = value.split(/\s/)[0];
+    }
+    if (value.length > 0) result[name] = value;
+  }
+  return result;
+}
 function loadApiKeys() {
+  const fileEnv = readEnvFile();
+  const pick = (name) => process.env[`CLAUDE_PLUGIN_OPTION_${name}`] ?? process.env[name] ?? fileEnv[name] ?? null;
   return {
-    openai: process.env.CLAUDE_PLUGIN_OPTION_OPENAI_API_KEY ?? process.env.OPENAI_API_KEY ?? null,
-    elevenlabs: process.env.CLAUDE_PLUGIN_OPTION_ELEVENLABS_API_KEY ?? process.env.ELEVENLABS_API_KEY ?? null
+    openai: pick("OPENAI_API_KEY"),
+    elevenlabs: pick("ELEVENLABS_API_KEY")
   };
 }
 function getConfigPath() {

@@ -114,10 +114,63 @@ function getSharedDefaults() {
   };
 }
 
+/**
+ * Read KEY=value pairs out of ~/.claude-speak/env.
+ *
+ * hooks.json sources this file before invoking the CLI, but the speak skill and
+ * anything run by hand do not — so a key kept only in this file reached the
+ * passive end-of-turn path and nothing else. Active voice and every speaking
+ * subcommand failed with "No API key", silently apart from an error beep.
+ * Reading it here fixes every invocation path at once.
+ *
+ * The file is *parsed*, never executed. A shell sources it elsewhere, but
+ * evaluating it here would run arbitrary code on every CLI start.
+ */
+function readEnvFile(): Record<string, string> {
+  const result: Record<string, string> = {};
+
+  let raw: unknown;
+  try {
+    raw = fs.readFileSync(path.join(os.homedir(), '.claude-speak', 'env'), 'utf-8');
+  } catch {
+    return result;
+  }
+  if (typeof raw !== 'string') return result;
+
+  for (const line of raw.split('\n')) {
+    // Comments and blank lines cannot match: `#` is not an identifier start.
+    const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
+    if (!match) continue;
+
+    const [, name] = match;
+    let value = match[2].trim();
+
+    const quote = value[0];
+    if ((quote === '"' || quote === "'") && value.length > 1 && value.endsWith(quote)) {
+      value = value.slice(1, -1);
+    } else {
+      // Unquoted: stop at whitespace, matching how a shell would treat the
+      // assignment, so a trailing comment cannot end up inside the key.
+      value = value.split(/\s/)[0];
+    }
+
+    if (value.length > 0) result[name] = value;
+  }
+
+  return result;
+}
+
 function loadApiKeys(): ApiKeys {
+  const fileEnv = readEnvFile();
+
+  // Process environment wins over the file: an explicitly exported key should
+  // override whatever was written to disk earlier.
+  const pick = (name: string): string | null =>
+    process.env[`CLAUDE_PLUGIN_OPTION_${name}`] ?? process.env[name] ?? fileEnv[name] ?? null;
+
   return {
-    openai: process.env.CLAUDE_PLUGIN_OPTION_OPENAI_API_KEY ?? process.env.OPENAI_API_KEY ?? null,
-    elevenlabs: process.env.CLAUDE_PLUGIN_OPTION_ELEVENLABS_API_KEY ?? process.env.ELEVENLABS_API_KEY ?? null,
+    openai: pick('OPENAI_API_KEY'),
+    elevenlabs: pick('ELEVENLABS_API_KEY'),
   };
 }
 

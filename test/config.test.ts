@@ -226,4 +226,91 @@ describe('loadConfig', () => {
       expect(config.speech.summarizer.timeout).toBe(8);
     });
   });
+
+  // hooks.json sources ~/.claude-speak/env before invoking the CLI; the speak
+  // skill does not. A key kept only in that file therefore reached the passive
+  // path and nothing else, so active voice and every speaking subcommand died
+  // with "No API key" — silent apart from an error beep.
+  describe('api keys from ~/.claude-speak/env', () => {
+    const ENV_PATH = '/mock/home/.claude-speak/env';
+
+    function withEnvFile(contents: string | null) {
+      vi.mocked(fs.existsSync).mockReturnValue(false); // no ~/.claude-speak.json
+      vi.mocked(fs.readFileSync).mockImplementation((p) => {
+        if (String(p) === ENV_PATH) {
+          if (contents === null) throw new Error('ENOENT');
+          return contents;
+        }
+        throw new Error('ENOENT');
+      });
+      return import('../src/config.js').then((m) => m.loadConfig());
+    }
+
+    beforeEach(() => {
+      delete process.env.ELEVENLABS_API_KEY;
+      delete process.env.OPENAI_API_KEY;
+      delete process.env.CLAUDE_PLUGIN_OPTION_ELEVENLABS_API_KEY;
+      delete process.env.CLAUDE_PLUGIN_OPTION_OPENAI_API_KEY;
+    });
+
+    it('reads a key the process environment does not have', async () => {
+      const config = await withEnvFile('ELEVENLABS_API_KEY=el-from-file\n');
+      expect(config.apiKeys.elevenlabs).toBe('el-from-file');
+    });
+
+    it('handles the export form', async () => {
+      const config = await withEnvFile('export OPENAI_API_KEY=sk-exported\n');
+      expect(config.apiKeys.openai).toBe('sk-exported');
+    });
+
+    it('strips surrounding double and single quotes', async () => {
+      const config = await withEnvFile(
+        'OPENAI_API_KEY="sk-double"\nELEVENLABS_API_KEY=\'el-single\'\n',
+      );
+      expect(config.apiKeys.openai).toBe('sk-double');
+      expect(config.apiKeys.elevenlabs).toBe('el-single');
+    });
+
+    it('skips comments and blank lines', async () => {
+      const config = await withEnvFile('# OPENAI_API_KEY=sk-commented\n\nELEVENLABS_API_KEY=el-real\n');
+      expect(config.apiKeys.openai).toBeNull();
+      expect(config.apiKeys.elevenlabs).toBe('el-real');
+    });
+
+    it('does not let a trailing comment leak into an unquoted value', async () => {
+      const config = await withEnvFile('ELEVENLABS_API_KEY=el-real # my key\n');
+      expect(config.apiKeys.elevenlabs).toBe('el-real');
+    });
+
+    it('lets the process environment win over the file', async () => {
+      process.env.ELEVENLABS_API_KEY = 'el-from-env';
+      const config = await withEnvFile('ELEVENLABS_API_KEY=el-from-file\n');
+      expect(config.apiKeys.elevenlabs).toBe('el-from-env');
+    });
+
+    it('lets the plugin keychain option win over both', async () => {
+      process.env.ELEVENLABS_API_KEY = 'el-from-env';
+      process.env.CLAUDE_PLUGIN_OPTION_ELEVENLABS_API_KEY = 'el-from-keychain';
+      const config = await withEnvFile('ELEVENLABS_API_KEY=el-from-file\n');
+      expect(config.apiKeys.elevenlabs).toBe('el-from-keychain');
+    });
+
+    it('returns null keys when the file is absent', async () => {
+      const config = await withEnvFile(null);
+      expect(config.apiKeys.openai).toBeNull();
+      expect(config.apiKeys.elevenlabs).toBeNull();
+    });
+
+    it('ignores an empty assignment rather than storing an empty key', async () => {
+      const config = await withEnvFile('ELEVENLABS_API_KEY=\n');
+      expect(config.apiKeys.elevenlabs).toBeNull();
+    });
+
+    it('does not execute the file', async () => {
+      // The file is sourced by a shell elsewhere. Evaluating it here would run
+      // arbitrary code on every CLI start.
+      const config = await withEnvFile('ELEVENLABS_API_KEY=$(rm -rf /)\n');
+      expect(config.apiKeys.elevenlabs).toBe('$(rm');
+    });
+  });
 });
