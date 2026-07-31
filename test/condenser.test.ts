@@ -140,3 +140,49 @@ describe('heuristicCondense', () => {
     expect(out).not.toMatch(/\w$/);
   });
 });
+
+// Regression: found by listening to real output, not by any test. truncate()
+// treated the "." in a numbered-list marker as a sentence boundary, cut
+// immediately after it, and left a bare ordinal that TTS reads as "three".
+describe('truncation around list markers', () => {
+  const numbered = [
+    'Intro sentence that sets things up and runs on for a while to eat budget.',
+    '',
+    '1. First item with enough text to matter here.',
+    '2. Second item, also reasonably long so the cut lands past it.',
+    '3. Third item that will be cut off partway through by the character budget.',
+  ].join('\n');
+
+  it('does not end on a bare list ordinal', () => {
+    const out = heuristicCondense(numbered, 200);
+    expect(out).not.toMatch(/\n\s*\d+\.\s*$/);
+    expect(out.trimEnd()).not.toMatch(/\b\d+\.$/);
+  });
+
+  it('cuts at the previous real sentence end instead', () => {
+    const out = heuristicCondense(numbered, 200);
+    expect(out).toContain('Second item');
+    expect(out).not.toContain('Third item');
+  });
+
+  it('still treats a genuine sentence-ending period as a boundary', () => {
+    const out = heuristicCondense('One sentence here. Two sentence here. Three here.', 25);
+    expect(out).toBe('One sentence here.');
+  });
+
+  it('does not strand a bullet marker either', () => {
+    const bulleted = [
+      'Opening line long enough to consume most of the available budget here.',
+      '',
+      '- alpha item text',
+      '- beta item text that gets cut',
+    ].join('\n');
+    const out = heuristicCondense(bulleted, 95);
+    expect(out).not.toMatch(/\n\s*[-*]\s*$/);
+  });
+
+  it('handles a decimal number without treating it as a boundary mid-word', () => {
+    const out = heuristicCondense('Version 2.0 shipped today. Then more text followed after.', 30);
+    expect(out).toBe('Version 2.0 shipped today.');
+  });
+});

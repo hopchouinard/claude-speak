@@ -131,21 +131,42 @@ function keepStructuralParagraphs(text: string): string {
   return [first, ...middleWithLists, last].join('\n\n');
 }
 
+/**
+ * True when the `.` at dotIndex terminates a list ordinal ("3.") rather than a
+ * sentence. Cutting there strands the number on its own line, and a lone "3."
+ * is read aloud as "three" — observed in the wild before this guard existed.
+ */
+function isListOrdinalDot(window: string, dotIndex: number): boolean {
+  return /(?:^|\n)[ \t]*\d+$/.test(window.slice(0, dotIndex));
+}
+
+/**
+ * Drop a list marker left alone on the final line by a cut. A bare "3." or "-"
+ * carries nothing once its text is gone.
+ */
+function stripDanglingMarker(text: string): string {
+  return text.replace(/\n[ \t]*(?:\d+\.|[-*])[ \t]*$/, '').trimEnd();
+}
+
 function truncate(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
 
   const window = text.slice(0, maxChars);
 
-  const lastSentence = Math.max(
-    window.lastIndexOf('. '),
-    window.lastIndexOf('! '),
-    window.lastIndexOf('? '),
-    window.endsWith('.') ? window.length - 1 : -1,
-  );
-  if (lastSentence > 0) return window.slice(0, lastSentence + 1).trim();
+  let lastSentence = -1;
+  for (let i = 0; i < window.length; i++) {
+    const ch = window[i];
+    if (ch !== '.' && ch !== '!' && ch !== '?') continue;
+    // A terminator only ends a sentence if whitespace or the window follows it.
+    const next = window[i + 1];
+    if (next !== undefined && next !== ' ' && next !== '\n') continue;
+    if (ch === '.' && isListOrdinalDot(window, i)) continue;
+    lastSentence = i;
+  }
+  if (lastSentence > 0) return stripDanglingMarker(window.slice(0, lastSentence + 1)).trim();
 
   const lastSpace = window.lastIndexOf(' ');
-  if (lastSpace > 0) return window.slice(0, lastSpace).trim() + ' ';
+  if (lastSpace > 0) return stripDanglingMarker(window.slice(0, lastSpace)).trim() + ' ';
 
   // No sentence or word boundary exists anywhere within the budget: the
   // window is one unbroken token (URL, hash, base64, ...). There is no

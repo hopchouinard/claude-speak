@@ -13828,18 +13828,27 @@ function keepStructuralParagraphs(text) {
   const middleWithLists = paragraphs.slice(1, -1).filter(paragraphHasListItems);
   return [first, ...middleWithLists, last].join("\n\n");
 }
+function isListOrdinalDot(window2, dotIndex) {
+  return /(?:^|\n)[ \t]*\d+$/.test(window2.slice(0, dotIndex));
+}
+function stripDanglingMarker(text) {
+  return text.replace(/\n[ \t]*(?:\d+\.|[-*])[ \t]*$/, "").trimEnd();
+}
 function truncate(text, maxChars) {
   if (text.length <= maxChars) return text;
   const window2 = text.slice(0, maxChars);
-  const lastSentence = Math.max(
-    window2.lastIndexOf(". "),
-    window2.lastIndexOf("! "),
-    window2.lastIndexOf("? "),
-    window2.endsWith(".") ? window2.length - 1 : -1
-  );
-  if (lastSentence > 0) return window2.slice(0, lastSentence + 1).trim();
+  let lastSentence = -1;
+  for (let i2 = 0; i2 < window2.length; i2++) {
+    const ch = window2[i2];
+    if (ch !== "." && ch !== "!" && ch !== "?") continue;
+    const next = window2[i2 + 1];
+    if (next !== void 0 && next !== " " && next !== "\n") continue;
+    if (ch === "." && isListOrdinalDot(window2, i2)) continue;
+    lastSentence = i2;
+  }
+  if (lastSentence > 0) return stripDanglingMarker(window2.slice(0, lastSentence + 1)).trim();
   const lastSpace = window2.lastIndexOf(" ");
-  if (lastSpace > 0) return window2.slice(0, lastSpace).trim() + " ";
+  if (lastSpace > 0) return stripDanglingMarker(window2.slice(0, lastSpace)).trim() + " ";
   return "";
 }
 function heuristicCondense(raw, maxChars) {
