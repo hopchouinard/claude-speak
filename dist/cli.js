@@ -6886,8 +6886,11 @@ function loadSessionState(sessionId) {
 }
 function writeSessionState(sessionId, state) {
   const filePath = getSessionPath(sessionId);
-  fs2.mkdirSync(path2.dirname(filePath), { recursive: true });
-  fs2.writeFileSync(filePath, JSON.stringify(state, null, 2), "utf-8");
+  try {
+    fs2.mkdirSync(path2.dirname(filePath), { recursive: true });
+    fs2.writeFileSync(filePath, JSON.stringify(state, null, 2), "utf-8");
+  } catch {
+  }
 }
 function isActive(sessionId) {
   if (!sessionId) return false;
@@ -14143,7 +14146,7 @@ function updateConfigFile(updater) {
 async function handleOn(sessionId) {
   if (!sessionId) {
     return {
-      message: "Cannot determine the current session. Voice not activated. This usually means CLAUDE_CODE_SESSION_ID is unavailable \u2014 try restarting Claude Code.",
+      message: "Cannot determine the current session. Voice not activated. CLAUDE_CODE_SESSION_ID was not set in this environment, and no hook payload supplied a session id. If you know the session id, activate manually with: CLAUDE_CODE_SESSION_ID=<id> node dist/cli.js --cmd on",
       speak: false,
       error: true
     };
@@ -14310,9 +14313,12 @@ async function handleStatus(sessionId) {
   const config = loadConfig();
   const provider = config.activeProvider;
   const providerConfig = config.providers[provider];
+  const playback = readPlaybackState();
+  const playbackLine = playback ? `Playback: playing (pid ${playback.pid}, session ${playback.sessionId ?? "unknown"})` : "Playback: idle";
   const lines = [
     `Session: ${sessionId ?? "unknown"}`,
     `Voice: ${isActive(sessionId) ? "active" : "off"}`,
+    playbackLine,
     `Provider: ${provider}`,
     `Voice name: ${providerConfig?.voice ?? "(not set)"}`,
     `Speed: ${providerConfig?.speed ?? 1}`,
@@ -14430,13 +14436,18 @@ async function run(args, stdin) {
   const config = loadConfig();
   debug2(`enabled=${config.enabled} activeProvider=${config.activeProvider} args=${JSON.stringify(args)}`);
   debug2(`stdin length=${stdin.length} stdin FULL=${JSON.stringify(stdin)}`);
+  const sessionId = resolveSessionId(stdin);
+  debug2(`sessionId=${sessionId}`);
+  const cmdIndex = args.indexOf("--cmd");
+  if (cmdIndex !== -1 && args[cmdIndex + 1] === "gc") {
+    debug2("running gc");
+    await dispatch("gc", [], sessionId);
+    return;
+  }
   if (!config.enabled) {
     debug2("EXIT: disabled");
     return;
   }
-  const sessionId = resolveSessionId(stdin);
-  debug2(`sessionId=${sessionId}`);
-  const cmdIndex = args.indexOf("--cmd");
   if (cmdIndex !== -1) {
     const subCmd = args[cmdIndex + 1];
     if (!subCmd) {
@@ -14467,7 +14478,10 @@ async function run(args, stdin) {
     isActiveVoice = true;
   } else if (triggerIndex !== -1 && args[triggerIndex + 1]) {
     const triggerType = args[triggerIndex + 1];
-    if (!config.hooks[triggerType]) return;
+    if (!config.hooks[triggerType]) {
+      debug2(`EXIT: hook ${triggerType} disabled in config`);
+      return;
+    }
     if (triggerType === "stop") {
       if (sessionId && consumeSpokeThisTurn(sessionId)) {
         debug2("EXIT: active voice already spoke this turn");

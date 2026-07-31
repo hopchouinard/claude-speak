@@ -115,6 +115,28 @@ describe('session state', () => {
       deactivate(ID);
       expect(fs.unlinkSync).not.toHaveBeenCalled();
     });
+
+    it('does not throw when the state directory cannot be created', async () => {
+      // Activation state is best-effort everywhere else; an EACCES here would
+      // otherwise escape run() and crash the hook.
+      vi.mocked(fs.mkdirSync).mockImplementation(() => {
+        const err = new Error('permission denied') as NodeJS.ErrnoException;
+        err.code = 'EACCES';
+        throw err;
+      });
+      const { activate } = await import('../src/session.js');
+      expect(() => activate(ID)).not.toThrow();
+    });
+
+    it('does not throw when the state file cannot be written', async () => {
+      vi.mocked(fs.writeFileSync).mockImplementation(() => {
+        const err = new Error('no space left on device') as NodeJS.ErrnoException;
+        err.code = 'ENOSPC';
+        throw err;
+      });
+      const { activate } = await import('../src/session.js');
+      expect(() => activate(ID)).not.toThrow();
+    });
   });
 
   describe('spokeThisTurn', () => {

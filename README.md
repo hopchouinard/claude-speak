@@ -180,7 +180,7 @@ The configuration file lives at `~/.claude-speak.json`. It uses a nested provide
       "maxWords": 40
     }
   },
-  "cooldown": 10,
+  "cooldown": 15,
   "timeout": 30,
   "logFile": "~/.claude-speak/logs/voice.log"
 }

@@ -116,20 +116,33 @@ export async function run(args: string[], stdin: string): Promise<void> {
   debug(`enabled=${config.enabled} activeProvider=${config.activeProvider} args=${JSON.stringify(args)}`);
   debug(`stdin length=${stdin.length} stdin FULL=${JSON.stringify(stdin)}`);
 
-  if (!config.enabled) { debug('EXIT: disabled'); return; }
-
   const sessionId = resolveSessionId(stdin);
   debug(`sessionId=${sessionId}`);
 
+  const cmdIndex = args.indexOf('--cmd');
+
+  // Housekeeping runs ahead of the kill switch. Session files accumulate
+  // whether or not voice is enabled, and SessionStart is the only thing that
+  // ever collects them (or removes the legacy 1.x session.json). Gating GC on
+  // `enabled` would leave a user who set it to false with state that grows
+  // forever and never migrates.
+  if (cmdIndex !== -1 && args[cmdIndex + 1] === 'gc') {
+    debug('running gc');
+    await dispatch('gc', [], sessionId);
+    return;
+  }
+
+  if (!config.enabled) { debug('EXIT: disabled'); return; }
+
   // Check for --cmd routing first (must work while voice is off, so the user
   // can turn it on, stop playback, or check status)
-  const cmdIndex = args.indexOf('--cmd');
   if (cmdIndex !== -1) {
     const subCmd = args[cmdIndex + 1];
     if (!subCmd) {
-      // Mirrors AVAILABLE_COMMANDS in subcommands.ts. `stop` and `turn-start`
-      // are deliberately absent: they are internal entry points for bin/shutup
-      // and the UserPromptSubmit hook, not commands to advertise here.
+      // Mirrors AVAILABLE_COMMANDS in subcommands.ts. `stop`, `turn-start` and
+      // `gc` are deliberately absent: they are internal entry points for
+      // bin/shutup, the UserPromptSubmit hook and the SessionStart hook
+      // respectively, not commands to advertise here.
       process.stdout.write('Usage: --cmd <subcommand> [args]\nAvailable: on, off, mute, unmute, provider, speed, voice, voices, status, test\n');
       return;
     }
@@ -166,7 +179,7 @@ export async function run(args: string[], stdin: string): Promise<void> {
     const triggerType = args[triggerIndex + 1] as 'stop' | 'notification';
 
     // Check if this hook type is enabled
-    if (!config.hooks[triggerType]) return;
+    if (!config.hooks[triggerType]) { debug(`EXIT: hook ${triggerType} disabled in config`); return; }
 
     if (triggerType === 'stop') {
       // Exact, turn-scoped dedup. Always consumes the flag.

@@ -482,6 +482,20 @@ describe('per-session stop scoping', () => {
 });
 
 
+describe('garbage collection', () => {
+  it('collects stale session state even when voice is disabled', async () => {
+    // GC must not sit behind the kill switch: a user with enabled=false would
+    // otherwise accumulate session files forever and never lose the legacy
+    // 1.x session.json.
+    vi.mocked(config.loadConfig).mockReturnValue(makeConfig({ enabled: false }));
+    vi.mocked(subcommands.dispatch).mockResolvedValue({ message: '', speak: false });
+
+    await run(['--cmd', 'gc'], '');
+
+    expect(subcommands.dispatch).toHaveBeenCalledWith('gc', [], 'sess-1');
+  });
+});
+
 // Fake timers, because the whole point is that measurable time passes between
 // the moment the request is stamped and the moment synthesis starts.
 describe('stop during condensation', () => {

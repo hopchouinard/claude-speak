@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import { loadConfig, getConfigPath, PROVIDER_DEFAULTS } from './config.js';
 import { activate, deactivate, isActive, setSpokeThisTurn, gcSessions } from './session.js';
-import { stopPlayback } from './player.js';
+import { stopPlayback, readPlaybackState } from './player.js';
 import { readCache, fetchElevenLabsVoices, writeCache, resolveVoiceName } from './voice-cache.js';
 
 export interface SubcommandResult {
@@ -45,7 +45,9 @@ async function handleOn(sessionId: string | null): Promise<SubcommandResult> {
     return {
       message:
         'Cannot determine the current session. Voice not activated. ' +
-        'This usually means CLAUDE_CODE_SESSION_ID is unavailable — try restarting Claude Code.',
+        'CLAUDE_CODE_SESSION_ID was not set in this environment, and no hook payload ' +
+        'supplied a session id. If you know the session id, activate manually with: ' +
+        'CLAUDE_CODE_SESSION_ID=<id> node dist/cli.js --cmd on',
       speak: false,
       error: true,
     };
@@ -254,9 +256,18 @@ async function handleStatus(sessionId: string | null): Promise<SubcommandResult>
   const provider = config.activeProvider;
   const providerConfig = config.providers[provider];
 
+  // Playback is machine-global, so this can report a stream started by a
+  // different window. That is the point: it is the only way to see what
+  // `!shutup` would silence.
+  const playback = readPlaybackState();
+  const playbackLine = playback
+    ? `Playback: playing (pid ${playback.pid}, session ${playback.sessionId ?? 'unknown'})`
+    : 'Playback: idle';
+
   const lines = [
     `Session: ${sessionId ?? 'unknown'}`,
     `Voice: ${isActive(sessionId) ? 'active' : 'off'}`,
+    playbackLine,
     `Provider: ${provider}`,
     `Voice name: ${providerConfig?.voice ?? '(not set)'}`,
     `Speed: ${providerConfig?.speed ?? 1.0}`,

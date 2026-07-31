@@ -394,6 +394,23 @@ describe('stop and turn-start subcommands', () => {
 });
 
 
+describe('gc subcommand', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('collects stale session state and emits nothing', async () => {
+    // check-setup.sh calls this on every SessionStart.
+    const { dispatch } = await import('../src/subcommands.js');
+    const result = await dispatch('gc', [], 'sess-1');
+
+    expect(session.gcSessions).toHaveBeenCalled();
+    expect(result.message).toBe('');
+    expect(result.speak).toBe(false);
+    expect(result.error).toBeFalsy();
+  });
+});
+
 describe('status output', () => {
   beforeEach(async () => {
     const configMod = await import('../src/config.js');
@@ -422,5 +439,25 @@ describe('status output', () => {
     const { dispatch } = await import('../src/subcommands.js');
     const result = await dispatch('status', [], null);
     expect(result.message).toContain('Session: unknown');
+  });
+
+  it('reports playback as idle when nothing is playing', async () => {
+    vi.mocked(player.readPlaybackState).mockReturnValue(null);
+    const { dispatch } = await import('../src/subcommands.js');
+    const result = await dispatch('status', [], 'sess-1');
+    expect(result.message).toContain('Playback: idle');
+  });
+
+  it('reports the in-flight playback and which session owns it', async () => {
+    vi.mocked(player.readPlaybackState).mockReturnValue({
+      pid: 4242,
+      startedAt: 1785000000000,
+      sessionId: 'sess-2',
+    });
+    const { dispatch } = await import('../src/subcommands.js');
+    const result = await dispatch('status', [], 'sess-1');
+    expect(result.message).toContain('Playback: playing');
+    expect(result.message).toContain('4242');
+    expect(result.message).toContain('sess-2');
   });
 });

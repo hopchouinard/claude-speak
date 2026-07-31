@@ -66,10 +66,20 @@ export function loadSessionState(sessionId: string): SessionState | null {
   }
 }
 
+/**
+ * Best effort, like every other write in this module. An EACCES or ENOSPC
+ * here would otherwise escape run() and crash the hook that called it — a
+ * failure to record activation state is not worth taking the harness down
+ * for, and every read path already treats a missing file as "voice off".
+ */
 function writeSessionState(sessionId: string, state: SessionState): void {
   const filePath = getSessionPath(sessionId);
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(state, null, 2), 'utf-8');
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(state, null, 2), 'utf-8');
+  } catch {
+    // Best effort.
+  }
 }
 
 export function isActive(sessionId: string | null): boolean {

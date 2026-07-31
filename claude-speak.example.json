@@ -32,7 +32,7 @@
       "maxWords": 40
     }
   },
-  "cooldown": 10,
+  "cooldown": 15,
   "timeout": 30,
   "logFile": "~/.claude-speak/logs/voice.log"
 }
