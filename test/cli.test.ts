@@ -72,6 +72,7 @@ beforeEach(() => {
   vi.mocked(session.resolveSessionId).mockReturnValue('sess-1');
   vi.mocked(session.isActive).mockReturnValue(true);
   vi.mocked(session.consumeSpokeThisTurn).mockReturnValue(false);
+  vi.mocked(session.consumeSilencedThisTurn).mockReturnValue(false);
   vi.mocked(condenser.shouldCondense).mockReturnValue(false);
   vi.mocked(player.readStopEpoch).mockReturnValue(0);
   vi.mocked(sanitizer.sanitize).mockImplementation((t) => t);
@@ -167,6 +168,8 @@ describe('CLI run', () => {
   it('ignores the cooldown lock on a stop trigger, which dedups per turn instead', async () => {
     vi.mocked(lock.isLocked).mockReturnValue(true);
     vi.mocked(session.consumeSpokeThisTurn).mockReturnValue(false);
+    vi.mocked(session.consumeSilencedThisTurn).mockReturnValue(false);
+  vi.mocked(session.consumeSilencedThisTurn).mockReturnValue(false);
     vi.mocked(extractor.extractMessage).mockReturnValue('Some message');
 
     await run(['--trigger', 'stop'], '{}');
@@ -554,6 +557,8 @@ describe('turn-scoped dedup', () => {
 
   it('speaks on the stop hook when nothing spoke this turn', async () => {
     vi.mocked(session.consumeSpokeThisTurn).mockReturnValue(false);
+    vi.mocked(session.consumeSilencedThisTurn).mockReturnValue(false);
+  vi.mocked(session.consumeSilencedThisTurn).mockReturnValue(false);
     vi.mocked(extractor.extractMessage).mockReturnValue('hello');
 
     await run(['--trigger', 'stop'], '{}');
@@ -605,5 +610,56 @@ describe('isIdleNotification', () => {
     'I updated the config file',
   ])('allows legitimate message: %s', (text) => {
     expect(isIdleNotification(text)).toBe(false);
+  });
+});
+
+// !shutup stopped the narration and the Stop hook then spoke Claude's one-word
+// reply ("Quiet."), so asking for silence produced a new spoken word. Observed
+// twice in a real session. Every part behaved correctly in isolation; only the
+// interaction was wrong, which is why nothing caught it.
+describe('silence after an explicit stop', () => {
+  it('does not speak the end-of-turn message when a stop was requested this turn', async () => {
+    vi.mocked(session.consumeSilencedThisTurn).mockReturnValue(true);
+    vi.mocked(extractor.extractMessage).mockReturnValue('Quiet.');
+
+    await run(['--trigger', 'stop'], '{}');
+
+    expect(player.playAudio).not.toHaveBeenCalled();
+    expect(mockSynthesize).not.toHaveBeenCalled();
+  });
+
+  it('consumes the flag so the next turn speaks again', async () => {
+    vi.mocked(session.consumeSilencedThisTurn).mockReturnValue(true);
+    vi.mocked(extractor.extractMessage).mockReturnValue('Quiet.');
+    await run(['--trigger', 'stop'], '{}');
+    expect(session.consumeSilencedThisTurn).toHaveBeenCalledWith('sess-1');
+
+    vi.mocked(session.consumeSilencedThisTurn).mockReturnValue(false);
+    vi.mocked(extractor.extractMessage).mockReturnValue('A normal reply.');
+    await run(['--trigger', 'stop'], '{}');
+    expect(player.playAudio).toHaveBeenCalled();
+  });
+
+  it('checks silence before the spoke-this-turn dedup', async () => {
+    // Both flags must be consumed on the same turn, or a stop during a turn
+    // that also used active voice would leave one set for the next turn.
+    vi.mocked(session.consumeSilencedThisTurn).mockReturnValue(true);
+    vi.mocked(extractor.extractMessage).mockReturnValue('Quiet.');
+
+    await run(['--trigger', 'stop'], '{}');
+
+    expect(player.playAudio).not.toHaveBeenCalled();
+  });
+
+  it('leaves notification triggers alone', async () => {
+    // Silence is turn-scoped and stop-hook-specific; notifications keep using
+    // the cooldown lock.
+    vi.mocked(session.consumeSilencedThisTurn).mockReturnValue(true);
+    vi.mocked(lock.isLocked).mockReturnValue(false);
+    vi.mocked(extractor.extractMessage).mockReturnValue('a notification');
+
+    await run(['--trigger', 'notification'], '{}');
+
+    expect(player.playAudio).toHaveBeenCalled();
   });
 });

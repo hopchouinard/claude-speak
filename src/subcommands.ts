@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import { loadConfig, getConfigPath, PROVIDER_DEFAULTS } from './config.js';
-import { activate, deactivate, isActive, setSpokeThisTurn, gcSessions } from './session.js';
+import { activate, deactivate, isActive, setSpokeThisTurn, gcSessions, setSilencedThisTurn, consumeSilencedThisTurn } from './session.js';
 import { stopPlayback, readPlaybackState } from './player.js';
 import { readCache, fetchElevenLabsVoices, writeCache, resolveVoiceName } from './voice-cache.js';
 
@@ -66,8 +66,11 @@ async function handleOff(sessionId: string | null): Promise<SubcommandResult> {
  * pending audio, because the user asked for quiet and cannot tell which
  * window is talking.
  */
-async function handleStop(): Promise<SubcommandResult> {
+async function handleStop(sessionId: string | null): Promise<SubcommandResult> {
   stopPlayback(null);
+  // The user asked for silence; speaking the end-of-turn message right after
+  // would answer that request with more speech.
+  if (sessionId) setSilencedThisTurn(sessionId);
   return { message: '', speak: false };
 }
 
@@ -79,7 +82,10 @@ async function handleStop(): Promise<SubcommandResult> {
  */
 async function handleTurnStart(sessionId: string | null): Promise<SubcommandResult> {
   stopPlayback(sessionId);
-  if (sessionId) setSpokeThisTurn(sessionId, false);
+  if (sessionId) {
+    setSpokeThisTurn(sessionId, false);
+    consumeSilencedThisTurn(sessionId);
+  }
   return { message: '', speak: false };
 }
 
@@ -304,7 +310,7 @@ export async function dispatch(
     case 'mute':
       return handleOff(sessionId);
     case 'stop':
-      return handleStop();
+      return handleStop(sessionId);
     case 'turn-start':
       return handleTurnStart(sessionId);
     case 'gc':

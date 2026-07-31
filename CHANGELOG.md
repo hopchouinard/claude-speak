@@ -26,6 +26,11 @@
 
 ### Fixed
 
+- An explicit stop now silences the rest of that turn. Previously `!shutup`
+  killed the narration and the Stop hook then spoke the reply that followed
+  it, so asking for silence produced a new spoken word. The flag clears at
+  the next prompt, so speech resumes without re-running `/speak on`.
+
 - Concurrent sessions no longer share mute state. Previously
   `check-setup.sh` deleted the global session file on every SessionStart,
   silently unmuting other open windows.

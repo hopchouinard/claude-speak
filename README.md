@@ -285,6 +285,11 @@ assumption that if you are typing, you are done listening.
 Both work even mid-synthesis: audio generated after you asked for silence is
 discarded rather than played.
 
+An explicit `!shutup` also suppresses the end-of-turn message for that turn —
+otherwise stopping the narration would immediately be answered with a fresh
+spoken reply. Speech resumes automatically at your next prompt; use
+`/speak off` if you want it to stay quiet.
+
 ## How It Works
 
 claude-speak operates in two modes that work together:

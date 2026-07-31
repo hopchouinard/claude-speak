@@ -76,6 +76,11 @@ The user can silence in-flight narration at any time by typing `!shutup`, and
 audio also stops automatically whenever they submit a prompt. If narration
 stops early, that was intentional — do not re-speak it.
 
+After a `!shutup`, the rest of that turn is not spoken at all, so a short
+acknowledgement costs nothing. Speech resumes on the next prompt by itself;
+the user does not need to run `/speak on` again, and telling them to would
+be wrong.
+
 ## When to use
 
 - **Critical failures** — a build broke, a deploy failed, a test suite collapsed

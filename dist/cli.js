@@ -6920,7 +6920,8 @@ function loadSessionState(sessionId) {
     return {
       active: parsed.active,
       activatedAt: typeof parsed.activatedAt === "number" ? parsed.activatedAt : 0,
-      spokeThisTurn: parsed.spokeThisTurn === true
+      spokeThisTurn: parsed.spokeThisTurn === true,
+      silencedThisTurn: parsed.silencedThisTurn === true
     };
   } catch {
     try {
@@ -6946,7 +6947,8 @@ function activate(sessionId) {
   writeSessionState(sessionId, {
     active: true,
     activatedAt: Date.now(),
-    spokeThisTurn: false
+    spokeThisTurn: false,
+    silencedThisTurn: false
   });
 }
 function deactivate(sessionId) {
@@ -6969,6 +6971,19 @@ function consumeSpokeThisTurn(sessionId) {
     writeSessionState(sessionId, { ...state, spokeThisTurn: false });
   }
   return state.spokeThisTurn;
+}
+function setSilencedThisTurn(sessionId) {
+  const state = loadSessionState(sessionId);
+  if (!state) return;
+  writeSessionState(sessionId, { ...state, silencedThisTurn: true });
+}
+function consumeSilencedThisTurn(sessionId) {
+  const state = loadSessionState(sessionId);
+  if (!state) return false;
+  if (state.silencedThisTurn) {
+    writeSessionState(sessionId, { ...state, silencedThisTurn: false });
+  }
+  return state.silencedThisTurn;
 }
 function gcSessions(maxAgeMs = DEFAULT_MAX_AGE_MS) {
   const legacyPath = path2.join(os2.homedir(), ".claude-speak", "session.json");
@@ -14213,13 +14228,17 @@ async function handleOff(sessionId) {
   if (sessionId) deactivate(sessionId);
   return { message: "Voice output off for this session.", speak: false };
 }
-async function handleStop() {
+async function handleStop(sessionId) {
   stopPlayback(null);
+  if (sessionId) setSilencedThisTurn(sessionId);
   return { message: "", speak: false };
 }
 async function handleTurnStart(sessionId) {
   stopPlayback(sessionId);
-  if (sessionId) setSpokeThisTurn(sessionId, false);
+  if (sessionId) {
+    setSpokeThisTurn(sessionId, false);
+    consumeSilencedThisTurn(sessionId);
+  }
   return { message: "", speak: false };
 }
 async function handleProvider(args) {
@@ -14402,7 +14421,7 @@ async function dispatch(cmd, args, sessionId) {
     case "mute":
       return handleOff(sessionId);
     case "stop":
-      return handleStop();
+      return handleStop(sessionId);
     case "turn-start":
       return handleTurnStart(sessionId);
     case "gc":
@@ -14538,6 +14557,10 @@ async function run(args, stdin) {
       return;
     }
     if (triggerType === "stop") {
+      if (sessionId && consumeSilencedThisTurn(sessionId)) {
+        debug2("EXIT: stop requested during this turn");
+        return;
+      }
       if (sessionId && consumeSpokeThisTurn(sessionId)) {
         debug2("EXIT: active voice already spoke this turn");
         return;

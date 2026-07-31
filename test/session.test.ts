@@ -254,3 +254,80 @@ describe('session state', () => {
     });
   });
 });
+
+// !shutup killed the narration and the Stop hook then spoke Claude's reply
+// ("Quiet."), so asking for silence produced a new spoken word. Observed twice
+// in a real session before this flag existed.
+describe('silencedThisTurn', () => {
+  const HOME2 = '/mock/home';
+  const FILE2 = `${HOME2}/.claude-speak/sessions/abc-123.json`;
+
+  // This block sits at file scope, so it does not inherit the top-level
+  // afterEach — without its own reset, mock call history leaks between tests
+  // and `mock.calls[0]` picks up an earlier test's write.
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(os, 'homedir').mockReturnValue(HOME2);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+  });
+
+  it('is a no-op when the session has no state file', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    const { setSilencedThisTurn } = await import('../src/session.js');
+    setSilencedThisTurn(ID);
+    expect(fs.writeFileSync).not.toHaveBeenCalled();
+  });
+
+  it('records the flag without disturbing activation', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(stateFile({ activatedAt: 4242 }));
+    const { setSilencedThisTurn } = await import('../src/session.js');
+    setSilencedThisTurn(ID);
+    const parsed = JSON.parse(vi.mocked(fs.writeFileSync).mock.calls[0][1] as string);
+    expect(parsed.silencedThisTurn).toBe(true);
+    expect(parsed.active).toBe(true);
+    expect(parsed.activatedAt).toBe(4242);
+  });
+
+  it('consume returns true once and clears the flag', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(stateFile({ silencedThisTurn: true }));
+    const { consumeSilencedThisTurn } = await import('../src/session.js');
+    expect(consumeSilencedThisTurn(ID)).toBe(true);
+    const parsed = JSON.parse(vi.mocked(fs.writeFileSync).mock.calls[0][1] as string);
+    expect(parsed.silencedThisTurn).toBe(false);
+  });
+
+  it('consume returns false when the flag was never set', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(stateFile());
+    const { consumeSilencedThisTurn } = await import('../src/session.js');
+    expect(consumeSilencedThisTurn(ID)).toBe(false);
+  });
+
+  it('is independent of spokeThisTurn', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(
+      stateFile({ silencedThisTurn: true, spokeThisTurn: true }),
+    );
+    const { consumeSilencedThisTurn } = await import('../src/session.js');
+    consumeSilencedThisTurn(ID);
+    const parsed = JSON.parse(vi.mocked(fs.writeFileSync).mock.calls[0][1] as string);
+    expect(parsed.silencedThisTurn).toBe(false);
+    expect(parsed.spokeThisTurn).toBe(true);
+  });
+
+  it('defaults to false on a state file written before the field existed', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(
+      JSON.stringify({ active: true, activatedAt: 1, spokeThisTurn: false }),
+    );
+    const { loadSessionState } = await import('../src/session.js');
+    expect(loadSessionState(ID)?.silencedThisTurn).toBe(false);
+    expect(fs.unlinkSync).not.toHaveBeenCalledWith(FILE2);
+  });
+});

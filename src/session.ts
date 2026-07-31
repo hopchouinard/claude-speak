@@ -6,6 +6,14 @@ export interface SessionState {
   active: boolean;
   activatedAt: number;
   spokeThisTurn: boolean;
+  /**
+   * Set when the user explicitly asked for silence during this turn (`!shutup`
+   * or `--cmd stop`). The end-of-turn message is then not spoken: having the
+   * interrupt kill one narration and immediately start another is the opposite
+   * of what was asked for. Cleared at the next turn, so speech resumes on its
+   * own without needing `/speak on` again.
+   */
+  silencedThisTurn: boolean;
 }
 
 const DEFAULT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -71,6 +79,7 @@ export function loadSessionState(sessionId: string): SessionState | null {
       active: parsed.active,
       activatedAt: typeof parsed.activatedAt === 'number' ? parsed.activatedAt : 0,
       spokeThisTurn: parsed.spokeThisTurn === true,
+      silencedThisTurn: parsed.silencedThisTurn === true,
     };
   } catch {
     // Corrupt state is indistinguishable from no state: remove it and stay silent.
@@ -109,6 +118,7 @@ export function activate(sessionId: string): void {
     active: true,
     activatedAt: Date.now(),
     spokeThisTurn: false,
+    silencedThisTurn: false,
   });
 }
 
@@ -146,6 +156,36 @@ export function consumeSpokeThisTurn(sessionId: string): boolean {
     writeSessionState(sessionId, { ...state, spokeThisTurn: false });
   }
   return state.spokeThisTurn;
+}
+
+/**
+ * Record that the user asked for silence during this turn.
+ *
+ * No-op without a session file: an inactive session has no end-of-turn speech
+ * to suppress. Also a no-op when the id cannot be resolved, which is why
+ * `shutup` run from a plain terminal still kills audio but cannot suppress a
+ * later message — it has no way to know which session to mark.
+ */
+export function setSilencedThisTurn(sessionId: string): void {
+  const state = loadSessionState(sessionId);
+  if (!state) return;
+  writeSessionState(sessionId, { ...state, silencedThisTurn: true });
+}
+
+/**
+ * Read the silence flag and always clear it, returning the prior value.
+ *
+ * Clearing unconditionally matches consumeSpokeThisTurn: if the turn-start hook
+ * ever fails to fire, one suppressed message is a far better failure than a
+ * session that has gone permanently mute.
+ */
+export function consumeSilencedThisTurn(sessionId: string): boolean {
+  const state = loadSessionState(sessionId);
+  if (!state) return false;
+  if (state.silencedThisTurn) {
+    writeSessionState(sessionId, { ...state, silencedThisTurn: false });
+  }
+  return state.silencedThisTurn;
 }
 
 /**

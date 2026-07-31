@@ -4,6 +4,7 @@ import {
   isActive,
   setSpokeThisTurn,
   consumeSpokeThisTurn,
+  consumeSilencedThisTurn,
 } from './session.js';
 import { extractMessage } from './extractor.js';
 import { sanitize } from './sanitizer.js';
@@ -182,6 +183,15 @@ export async function run(args: string[], stdin: string): Promise<void> {
     if (!config.hooks[triggerType]) { debug(`EXIT: hook ${triggerType} disabled in config`); return; }
 
     if (triggerType === 'stop') {
+      // The user asked for silence during this turn. Answering that with a
+      // fresh spoken message is the opposite of what was asked, so the
+      // end-of-turn narration is dropped. Consumed either way, so the next
+      // turn speaks normally without needing /speak on again.
+      if (sessionId && consumeSilencedThisTurn(sessionId)) {
+        debug('EXIT: stop requested during this turn');
+        return;
+      }
+
       // Exact, turn-scoped dedup. Always consumes the flag.
       if (sessionId && consumeSpokeThisTurn(sessionId)) {
         debug('EXIT: active voice already spoke this turn');
