@@ -4,13 +4,32 @@ Voice output layer for [Claude Code](https://docs.anthropic.com/en/docs/claude-c
 
 This is **not** a voice input system and it is **not** the built-in Claude Code voice mode. It is a dedicated text-to-speech plugin that gives Claude the ability to speak its responses aloud, either automatically at the end of every turn or deliberately when something warrants your audible attention.
 
+## Upgrading to 2.0.0 (breaking)
+
+**Voice output is now off by default in every session.** Run `/speak on` to
+activate it. Nothing is spoken until you do.
+
+This replaces the old global mute state, which was stored in a single file
+shared by every concurrent Claude Code window and reset on every session start
+— so opening a second window silently unmuted the first. Activation is now
+per-session and never persists.
+
+- `/speak on` / `/speak off` are the new canonical commands. `mute` and
+  `unmute` still work as aliases.
+- `~/.claude-speak/session.json` is obsolete and is deleted automatically.
+- Long or table-heavy messages are now condensed before being spoken. Disable
+  with `"speech": { "condense": false }`.
+- Type `!shutup` to cut off narration instantly, or just submit a prompt.
+
 ## Table of Contents
 
+- [Upgrading to 2.0.0](#upgrading-to-200-breaking)
 - [Features](#features)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Post-Installation Setup](#post-installation-setup)
 - [Configuration Reference](#configuration-reference)
+- [Interrupting speech](#interrupting-speech)
 - [How It Works](#how-it-works)
 - [Session Controls](#session-controls)
 - [Multi-Provider Support](#multi-provider-support)
@@ -27,10 +46,12 @@ This is **not** a voice input system and it is **not** the built-in Claude Code 
 
 - **Passive voice** -- Automatically speaks Claude's final message at the end of each turn via hooks
 - **Active voice** -- Claude can choose to speak mid-turn when something warrants your immediate audible attention (build failures, blocking questions, completed milestones)
-- **Session mute/unmute** -- Mute and unmute voice output within a session without editing config files; every new session starts fresh
+- **Opt-in per session** -- Voice output is off by default in every new session; `/speak on` activates it for that session only
 - **Multi-provider TTS** -- Supports both OpenAI (`gpt-4o-mini-tts`) and ElevenLabs, with full configuration for each provider stored side by side
-- **Subcommand system** -- Control provider, voice, speed, mute, and more via `/speak:` subcommands without leaving your session
-- **Smart deduplication** -- A lockfile-based cooldown prevents passive and active voice from double-speaking the same content
+- **Subcommand system** -- Control provider, voice, speed, activation, and more via `/speak` subcommands without leaving your session
+- **Smart deduplication** -- Turn-scoped tracking stops the passive Stop hook from repeating a message active voice already spoke this turn; a separate cooldown covers Notification events
+- **Speech condensation** -- Long or table-heavy messages are rewritten into a short spoken summary (LLM rewrite, falling back to a deterministic heuristic) before being sent to TTS
+- **Instant interrupt** -- `!shutup` cuts off in-flight narration immediately, and submitting a prompt stops it automatically
 - **Markdown sanitization** -- Strips headers, bold/italic, code fences, tables, links, and HTML before sending text to TTS, so speech sounds natural
 - **Table-to-speech conversion** -- Markdown tables are converted to "Header: Value" pairs for intelligible spoken output
 - **Voice cache** -- ElevenLabs voices are cached locally for fast name-to-ID resolution without repeated API calls
@@ -150,6 +171,15 @@ The configuration file lives at `~/.claude-speak.json`. It uses a nested provide
   "playback": {
     "command": "afplay"
   },
+  "speech": {
+    "maxChars": 500,
+    "condense": true,
+    "summarizer": {
+      "model": "gpt-5.4-nano-2026-03-17",
+      "timeout": 8,
+      "maxWords": 40
+    }
+  },
   "cooldown": 10,
   "timeout": 30,
   "logFile": "~/.claude-speak/logs/voice.log"
@@ -169,6 +199,29 @@ The configuration file lives at `~/.claude-speak.json`. It uses a nested provide
 | `cooldown` | `number` | `15` | Seconds after an active voice event during which the passive hook will not fire. |
 | `timeout` | `number` | `30` | Maximum seconds to wait for the TTS API before giving up. |
 | `logFile` | `string` | `"~/.claude-speak/logs/voice.log"` | Path to the error log file. Supports `~/` expansion. |
+
+### `speech`
+
+Controls how long or structured messages are condensed before being spoken.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `maxChars` | `500` | Prose longer than this (measured after markdown is stripped) gets condensed. |
+| `condense` | `true` | Set `false` to speak messages verbatim, as 1.x did. |
+| `summarizer.model` | `gpt-5.4-nano-2026-03-17` | Model used for the rewrite. Uses your existing OpenAI key. |
+| `summarizer.timeout` | `8` | Seconds before the rewrite is abandoned for the heuristic fallback. |
+| `summarizer.maxWords` | `40` | Word budget requested of the rewrite. |
+
+Tables, code blocks, and lists of 5 or more items are always condensed
+regardless of length — those are the cases that are genuinely unlistenable.
+
+### `enabled`
+
+A hard global kill switch, set via the `CLAUDE_SPEAK_ENABLED` environment
+variable (see [Quick Toggle](#quick-toggle)) rather than a key in
+`~/.claude-speak.json`. When set to `false`, nothing is ever spoken regardless
+of session activation. It is not the on/off control for normal use — that is
+`/speak on` — and most users never need to touch it.
 
 ### OpenAI Provider Options
 
@@ -207,21 +260,36 @@ The `instructions` field (OpenAI only) controls how the TTS model delivers your 
 "instructions": "Energetic and enthusiastic. Speed up slightly for lists, slow down for important points."
 ```
 
+## Interrupting speech
+
+Type `!shutup` at the Claude Code prompt to cut off narration instantly. The
+`!` prefix runs it directly in your shell, so it takes effect in well under a
+second rather than waiting for a model turn.
+
+Narration also stops automatically whenever you submit a prompt, on the
+assumption that if you are typing, you are done listening.
+
+Both work even mid-synthesis: audio generated after you asked for silence is
+discarded rather than played.
+
 ## How It Works
 
 claude-speak operates in two modes that work together:
 
 ### Passive Voice (Automatic)
 
-When Claude finishes a turn, the plugin's `Stop` hook fires automatically:
+When Claude finishes a turn, the plugin's `Stop` hook fires automatically — but only if voice was activated for this session with `/speak on`:
 
 1. Claude Code invokes the `Stop` hook, passing the session context as JSON on stdin
-2. API keys are loaded from the system keychain (or environment variables)
-3. The CLI extracts the `last_assistant_message` from the JSON
-4. The sanitizer strips all markdown formatting into clean natural text
-5. The sanitized text is sent to the active TTS provider's API
-6. The resulting audio is written to a temp file and played via `afplay`/`paplay`
-7. The playback process is detached so the CLI exits immediately without blocking Claude Code
+2. The CLI checks whether this session is active; if not, it exits silently
+3. If active voice already spoke this turn, the hook exits silently rather than repeating it (see [Deduplication and Cooldown](#deduplication-and-cooldown))
+4. API keys are loaded from the system keychain (or environment variables)
+5. The CLI extracts the `last_assistant_message` from the JSON
+6. The sanitizer strips all markdown formatting into clean natural text
+7. If the result is long, tabular, or code-heavy, it is condensed first (see [`speech`](#speech))
+8. The sanitized text is sent to the active TTS provider's API
+9. The resulting audio is written to a temp file and played via `afplay`/`paplay`
+10. The playback process is detached so the CLI exits immediately without blocking Claude Code
 
 There is a built-in 2-second delay before the Stop hook fires, giving you time to start reading the response before audio begins.
 
@@ -234,27 +302,30 @@ Claude has a bundled skill called `speak` that lets it deliberately speak during
 - **Completed milestones** -- a long-running task finished successfully
 - **Security or data concerns** -- something you must know about immediately
 - **You're not watching** -- anything important enough that it shouldn't wait for you to glance at the screen
+- **A final message that's long or table-heavy** -- Claude speaks a short spoken summary as its last action before finishing the turn, rather than letting the automatic condenser guess
 
-When active voice fires, it writes a lock file before speaking. This prevents the end-of-turn passive hook from repeating the same information.
+When active voice fires, the CLI marks the turn as already spoken before synthesis even starts. This prevents the end-of-turn passive hook from repeating the same information later in the same turn.
 
 ## Session Controls
 
-claude-speak provides subcommands you can invoke during a session via `/speak:` in Claude Code:
+claude-speak provides subcommands you can invoke during a session via `/speak` in Claude Code:
 
 | Command | Effect |
 |---------|--------|
-| `/speak mute` | Mute all TTS for this session |
-| `/speak unmute` | Re-enable TTS (speaks a confirmation to prove it works) |
+| `/speak on` | Activate voice output for this session (required — off by default) |
+| `/speak off` | Deactivate voice output for this session |
+| `/speak mute` | Alias for `/speak off` |
+| `/speak unmute` | Alias for `/speak on` (speaks a confirmation to prove it works) |
 | `/speak provider openai` | Switch to OpenAI TTS (persistent) |
 | `/speak provider elevenlabs` | Switch to ElevenLabs TTS (persistent) |
 | `/speak voice Marin` | Change the speaking voice (persistent) |
 | `/speak voices` | List available voices for the current provider |
 | `/speak speed 1.2` | Adjust speech speed, 0.25-4.0 (persistent) |
-| `/speak status` | Show current provider, voice, speed, mute state |
+| `/speak status` | Show current provider, voice, speed, activation state |
 | `/speak test` | Speak a diagnostic phrase to verify everything works |
 
 **Session vs. persistent changes:**
-- **Mute/unmute** is session-only. Every new session starts unmuted.
+- **Activation (`on`/`off`, `mute`/`unmute`)** is session-only. Every new session starts off — voice is inactive until you run `/speak on`.
 - **Provider, voice, and speed** changes write to `~/.claude-speak.json` and persist across sessions.
 
 ## Multi-Provider Support
@@ -308,14 +379,18 @@ OpenAI voices are a fixed set and don't require caching. The available voices ar
 
 ## Deduplication and Cooldown
 
-To prevent active and passive voice from speaking over each other:
+Two different mechanisms prevent double-speaking, depending on which hook is involved:
 
-1. When active voice fires, it writes a timestamp to `~/.claude-speak/voice.lock`
-2. When the passive Stop hook fires, it checks the lock file
-3. If the lock timestamp is within the `cooldown` window (default: 15 seconds), the passive hook exits silently
-4. After the cooldown expires, passive voice resumes normally
+**Stop hook (end of turn):** Each session tracks an exact, turn-scoped "spoke this turn" flag rather than a timestamp.
 
-This means if Claude speaks actively at second 0, the Stop hook at second 2 won't double-speak. But if Claude doesn't speak actively, the Stop hook works as normal.
+1. When active voice fires (`--say`), the flag is set immediately, before synthesis even starts
+2. When the passive Stop hook fires, it checks and clears the flag
+3. If the flag was set, the Stop hook exits silently instead of repeating the message
+4. Submitting a new prompt resets the flag for the next turn
+
+This is exact rather than time-based: it does not matter whether active voice spoke 1 second or 30 seconds before the Stop hook fires, and a turn ending just after a previous cooldown-based check would no longer be silently swallowed the way a shared timer could cause.
+
+**Notification hook:** Notifications aren't tied to a single turn the way Stop is, so they still use a timestamp lock at `~/.claude-speak/voice.lock` and the `cooldown` config value (default: 15 seconds). If a notification fires within `cooldown` seconds of the last spoken event, it's skipped.
 
 ## Quick Toggle
 
@@ -332,9 +407,11 @@ export CLAUDE_SPEAK_ENABLED=true
 Or use the in-session subcommands for a more ergonomic toggle:
 
 ```
-/speak mute
-/speak unmute
+/speak off
+/speak on
 ```
+
+(`/speak mute` and `/speak unmute` work the same way, as aliases.)
 
 You can also disable individual hooks in your config:
 
@@ -391,26 +468,30 @@ claude-speak/
     cli.ts              # Entry point: argument parsing, pipeline orchestration
     config.ts           # Config loading, env var merging, auto-migration
     migration.ts        # Old-to-new config format detection and transform
-    session.ts          # Session state (mute) loading and persistence
-    subcommands.ts      # Subcommand dispatcher (mute, voice, provider, etc.)
+    session.ts          # Per-session activation state (activate/deactivate/spokeThisTurn)
+    subcommands.ts      # Subcommand dispatcher (on/off, voice, provider, etc.)
+    condenser.ts        # Detects unlistenable text and applies the deterministic heuristic fallback
+    summarizer.ts       # LLM rewrite tier of speech condensation
     voice-cache.ts      # ElevenLabs voice cache (fetch, read, resolve)
     extractor.ts        # Extracts assistant message from hook JSON stdin
     sanitizer.ts        # Strips markdown/HTML for natural speech
-    lock.ts             # Timestamp lockfile for active/passive deduplication
-    player.ts           # Platform-aware audio playback (afplay/paplay)
+    lock.ts             # Timestamp lockfile for Notification-hook deduplication
+    player.ts           # Platform-aware audio playback (afplay/paplay) and stop-epoch tracking
     error.ts            # Error logging and system beep on failure
     tts/
       interface.ts      # TTSProvider interface and TTSOptions type
       openai.ts         # OpenAI TTS implementation
       elevenlabs.ts     # ElevenLabs TTS implementation (raw fetch)
       factory.ts        # Provider factory (creates provider by name)
+  bin/
+    shutup              # Fast-path CLI for `!shutup` — stops playback with no model turn
   hooks/
-    hooks.json          # Stop, Notification, and SessionStart hooks
+    hooks.json          # Stop, Notification, SessionStart, and UserPromptSubmit hooks
   skills/
     speak/
       SKILL.md          # Active voice and subcommand skill definition
   scripts/
-    check-setup.sh      # SessionStart setup validation and session cleanup
+    check-setup.sh      # SessionStart setup validation and session garbage collection
   dist/
     cli.js              # Bundled output (single file, all deps included)
   CLAUDE.md             # Behavioral guidance injected into Claude's context
@@ -420,13 +501,16 @@ claude-speak/
 
 ```
 Hook fires (Stop/Notification)
-  -> Check mute state -> exit if muted
+  -> Check session activation -> exit if not activated with /speak on
   -> stdin JSON received
   -> Extract last_assistant_message
-  -> Check if locked (cooldown active?) -> exit if yes
+  -> Stop: check turn-scoped "spoke this turn" flag -> exit if set
+  -> Notification: check lock file (cooldown active?) -> exit if yes
   -> Sanitize markdown to plain text
+  -> Condense if long, tabular, or code-heavy (LLM rewrite, then heuristic fallback)
   -> Create TTS provider via factory (OpenAI or ElevenLabs)
   -> Send to provider API
+  -> Exit early if a stop was requested since this pipeline started
   -> Write audio to temp file
   -> Spawn playback process (detached)
   -> CLI exits
@@ -437,9 +521,9 @@ Hook fires (Stop/Notification)
 - **Single bundled file**: esbuild compiles all TypeScript and dependencies into one `dist/cli.js`. No runtime `npm install` needed.
 - **Detached playback**: The audio player runs as a detached subprocess so the CLI exits immediately without blocking Claude Code.
 - **User-level config**: `~/.claude-speak.json` lives in your home directory, not per-project. Your voice preferences follow you across all repos.
-- **Lock file in home dir**: `~/.claude-speak/voice.lock` is always in the home directory regardless of `CLAUDE_PLUGIN_DATA`, so active and passive voice always read/write the same file.
+- **Lock file in home dir**: `~/.claude-speak/voice.lock` is always in the home directory regardless of `CLAUDE_PLUGIN_DATA`. It now only governs the Notification-hook cooldown; Stop-hook dedup uses the turn-scoped flag instead.
 - **No SDK for ElevenLabs**: Uses raw `fetch` against the convert endpoint to keep dependencies light. The endpoint is a single POST.
-- **Session state via file**: `~/.claude-speak/session.json` holds transient state (mute). Cleaned up on every `SessionStart` so each session starts fresh.
+- **Per-session state via files**: `~/.claude-speak/sessions/<session_id>.json` holds each session's activation and turn-scoped flag. Sessions are independent, so a second window can never unmute the first. Stale session files and the legacy 1.x `~/.claude-speak/session.json` are garbage-collected on `SessionStart`.
 
 ## Platform Support
 
@@ -453,15 +537,18 @@ Hook fires (Stop/Notification)
 
 ### No audio plays
 
-1. Check that `~/.claude-speak.json` exists and is valid JSON
-2. Check that your API key is configured (reinstall plugin or check shell environment)
-3. Run `/speak status` to verify the plugin sees your config
-4. Run `/speak test` to test the full pipeline
-5. Run the [debug checks](#common-debug-checks) above
+1. Check that you ran `/speak on` for this session — voice is off by default and does not persist from a previous session
+2. Check that `~/.claude-speak.json` exists and is valid JSON
+3. Check that your API key is configured (reinstall plugin or check shell environment)
+4. Run `/speak status` to verify the plugin sees your config and that the session is active
+5. Run `/speak test` to test the full pipeline
+6. Run the [debug checks](#common-debug-checks) above
 
 ### Voice speaks twice
 
-Your `cooldown` value may be too low. Increase it in `~/.claude-speak.json`:
+Stop-hook double-speech (active voice, then the end-of-turn hook repeating it) is prevented by an exact per-turn flag and should not happen. If you see it anyway, check the [debug log](#debugging) for whether the Stop hook fired before the flag was set — please file an issue with the log excerpt.
+
+If instead a `Notification` event repeats close to another spoken event, your `cooldown` value may be too low. Increase it in `~/.claude-speak.json`:
 
 ```json
 {
@@ -471,7 +558,7 @@ Your `cooldown` value may be too low. Increase it in `~/.claude-speak.json`:
 
 ### Voice never stops (overlapping audio)
 
-Each turn's audio plays independently. If Claude is responding quickly across multiple turns, audio from previous turns may overlap. Use `/speak mute` to silence voice temporarily, or increase the cooldown.
+Type `!shutup` to cut off in-flight narration instantly (see [Interrupting speech](#interrupting-speech)), or submit a prompt, which stops it automatically. Use `/speak off` to silence voice for the rest of the session.
 
 ### "No API key" errors
 
