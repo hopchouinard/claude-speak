@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
+    "check:dist": "node build.mjs && git diff --quiet HEAD -- dist/ || (echo 'dist/ is stale — commit the rebuild' && exit 1)",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"

@@ -45,3 +45,18 @@ The `speak` skill also supports subcommands for controlling voice output. Invoke
 - A cooldown prevents speaking too frequently. If your active voice call is silently skipped, it means you spoke recently — this is expected behavior.
 - If the user mutes voice output, respect it. Do not attempt to speak until they unmute.
 - The user can cut off narration with `!shutup` or by submitting a prompt. If speech stops early, that was deliberate — do not repeat it.
+
+## Working on this repository
+
+Before committing changes to `src/`, run all three:
+
+```bash
+npm test          # vitest
+npm run typecheck # tsc --noEmit
+npm run check:dist # rebuilds and fails if the committed dist/ is stale
+```
+
+`dist/cli.js` is committed and is what the hooks actually execute — `src/` is
+not. A stale bundle silently runs old code while the whole suite stays green,
+which has already happened once. `check:dist` rebuilds in place, so when it
+fails the fix is to commit the rebuild it just produced.

@@ -615,7 +615,14 @@ npm test
 
 # Watch mode for tests
 npm run test:watch
+
+# Verify the committed bundle matches src/ (rebuilds, fails if dist/ is stale)
+npm run check:dist
 ```
+
+The hooks execute `dist/cli.js`, not `src/`, and `dist/cli.js` is committed.
+A stale bundle therefore runs old code while every test passes, so run
+`npm run check:dist` alongside `npm test` before committing.
 
 ## License
 
