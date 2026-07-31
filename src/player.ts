@@ -68,7 +68,7 @@ export function readPlaybackState(): PlaybackState | null {
  * SIGTERM whatever stream is currently tracked and forget it. Machine-global
  * by design; stamps no epoch, so it never discards anyone's pending audio.
  */
-function killTrackedPlayback(): void {
+export function killTrackedPlayback(): void {
   const state = readPlaybackState();
   if (state) {
     try {

@@ -663,3 +663,52 @@ describe('silence after an explicit stop', () => {
     expect(player.playAudio).toHaveBeenCalled();
   });
 });
+
+describe('subcommand speech marks the turn as spoken', () => {
+  it('sets the flag so the Stop hook does not narrate the same turn', async () => {
+    // /speak on otherwise says "Voice output activated" and then the Stop
+    // hook says "Voice is on" — the double-speech the flag exists to stop,
+    // arriving through the subcommand path instead of --say.
+    vi.mocked(session.isActive).mockReturnValue(true);
+    vi.mocked(subcommands.dispatch).mockResolvedValue({ message: 'Voice output activated.', speak: true });
+
+    await run(['--cmd', 'on'], '');
+
+    expect(session.setSpokeThisTurn).toHaveBeenCalledWith('sess-1', true);
+  });
+
+  it('does not mark the turn when the confirmation was not spoken', async () => {
+    vi.mocked(session.isActive).mockReturnValue(false);
+    vi.mocked(subcommands.dispatch).mockResolvedValue({ message: 'a test phrase', speak: true });
+
+    await run(['--cmd', 'test'], '');
+
+    expect(session.setSpokeThisTurn).not.toHaveBeenCalled();
+  });
+});
+
+describe('notification cooldown is actually refreshed', () => {
+  it('writes the lock after a notification starts playing', async () => {
+    // The notification path gates on isLocked but nothing wrote the lock, so
+    // several notifications in one turn all passed the check and spoke over
+    // each other. The cooldown had no effect on the only trigger it governs.
+    vi.mocked(lock.isLocked).mockReturnValue(false);
+    vi.mocked(extractor.extractMessage).mockReturnValue('a notification');
+
+    await run(['--trigger', 'notification'], '{}');
+
+    expect(player.playAudio).toHaveBeenCalled();
+    expect(lock.writeLock).toHaveBeenCalled();
+  });
+
+  it('does not write the lock for a stop trigger, which dedups per turn', async () => {
+    vi.mocked(session.consumeSpokeThisTurn).mockReturnValue(false);
+    vi.mocked(session.consumeSilencedThisTurn).mockReturnValue(false);
+    vi.mocked(extractor.extractMessage).mockReturnValue('an end of turn message');
+
+    await run(['--trigger', 'stop'], '{}');
+
+    expect(player.playAudio).toHaveBeenCalled();
+    expect(lock.writeLock).not.toHaveBeenCalled();
+  });
+});

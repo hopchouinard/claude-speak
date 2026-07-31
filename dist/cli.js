@@ -6953,10 +6953,12 @@ function activate(sessionId) {
 }
 function deactivate(sessionId) {
   const filePath = getSessionPath(sessionId);
-  if (!fs2.existsSync(filePath)) return;
+  if (!fs2.existsSync(filePath)) return true;
   try {
     fs2.unlinkSync(filePath);
+    return true;
   } catch {
+    return false;
   }
 }
 function setSpokeThisTurn(sessionId, value) {
@@ -6985,7 +6987,7 @@ function consumeSilencedThisTurn(sessionId) {
   }
   return state.silencedThisTurn;
 }
-function gcSessions(maxAgeMs = DEFAULT_MAX_AGE_MS) {
+function gcSessions(maxAgeMs = DEFAULT_MAX_AGE_MS, protectSessionId) {
   const legacyPath = path2.join(os2.homedir(), ".claude-speak", "session.json");
   if (fs2.existsSync(legacyPath)) {
     try {
@@ -7002,8 +7004,10 @@ function gcSessions(maxAgeMs = DEFAULT_MAX_AGE_MS) {
   } catch {
     return;
   }
+  const protectedFile = protectSessionId ? `${protectSessionId}.json` : null;
   for (const entry of entries) {
     if (!entry.endsWith(".json")) continue;
+    if (protectedFile && entry === protectedFile) continue;
     const filePath = path2.join(dir, entry);
     try {
       if (fs2.statSync(filePath).mtimeMs < cutoff) {
@@ -14225,7 +14229,13 @@ async function handleOn(sessionId) {
   return { message: "Voice output activated for this session.", speak: true };
 }
 async function handleOff(sessionId) {
-  if (sessionId) deactivate(sessionId);
+  if (sessionId && !deactivate(sessionId)) {
+    return {
+      message: "Could not turn voice off \u2014 the session state file could not be removed. Delete " + getSessionPath(sessionId) + " by hand, or voice will keep speaking.",
+      speak: false,
+      error: true
+    };
+  }
   return { message: "Voice output off for this session.", speak: false };
 }
 async function handleStop(sessionId) {
@@ -14234,7 +14244,11 @@ async function handleStop(sessionId) {
   return { message: "", speak: false };
 }
 async function handleTurnStart(sessionId) {
-  stopPlayback(sessionId);
+  if (sessionId) {
+    stopPlayback(sessionId);
+  } else {
+    killTrackedPlayback();
+  }
   if (sessionId) {
     setSpokeThisTurn(sessionId, false);
     consumeSilencedThisTurn(sessionId);
@@ -14425,7 +14439,7 @@ async function dispatch(cmd, args, sessionId) {
     case "turn-start":
       return handleTurnStart(sessionId);
     case "gc":
-      gcSessions();
+      gcSessions(void 0, sessionId);
       return { message: "", speak: false };
     case "provider":
       return handleProvider(args);
@@ -14534,6 +14548,7 @@ async function run(args, stdin) {
     if (result.speak && result.message && isActive(sessionId)) {
       const freshConfig = loadConfig();
       await speakText(result.message, freshConfig, sessionId);
+      if (sessionId) setSpokeThisTurn(sessionId, true);
     }
     return;
   }
@@ -14545,6 +14560,7 @@ async function run(args, stdin) {
   const triggerIndex = args.indexOf("--trigger");
   let text = null;
   let isActiveVoice = false;
+  let isNotification = false;
   if (sayIndex !== -1 && args[sayIndex + 1]) {
     writeLock(getLockPath());
     if (sessionId) setSpokeThisTurn(sessionId, true);
@@ -14552,6 +14568,7 @@ async function run(args, stdin) {
     isActiveVoice = true;
   } else if (triggerIndex !== -1 && args[triggerIndex + 1]) {
     const triggerType = args[triggerIndex + 1];
+    isNotification = triggerType === "notification";
     if (!config.hooks[triggerType]) {
       debug2(`EXIT: hook ${triggerType} disabled in config`);
       return;
@@ -14623,7 +14640,7 @@ async function run(args, stdin) {
       return;
     }
     playAudio(audio, config.playback.command, sessionId);
-    if (isActiveVoice) {
+    if (isActiveVoice || isNotification) {
       writeLock(getLockPath());
     }
   } catch (err) {

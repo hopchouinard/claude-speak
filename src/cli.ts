@@ -156,6 +156,11 @@ export async function run(args: string[], stdin: string): Promise<void> {
       // Reload config in case the subcommand changed it (e.g., provider, speed, voice)
       const freshConfig = loadConfig();
       await speakText(result.message, freshConfig, sessionId);
+      // This turn has now been spoken. Without the flag the Stop hook also
+      // narrates the final message, so `/speak on` says "Voice output
+      // activated" and then "Voice is on" — the same double-speech the flag
+      // exists to prevent, just arriving through the subcommand path.
+      if (sessionId) setSpokeThisTurn(sessionId, true);
     }
     return;
   }
@@ -168,6 +173,7 @@ export async function run(args: string[], stdin: string): Promise<void> {
 
   let text: string | null = null;
   let isActiveVoice = false;
+  let isNotification = false;
 
   if (sayIndex !== -1 && args[sayIndex + 1]) {
     // Active voice mode: write lock immediately so the Stop hook sees it
@@ -178,6 +184,7 @@ export async function run(args: string[], stdin: string): Promise<void> {
   } else if (triggerIndex !== -1 && args[triggerIndex + 1]) {
     // Passive voice mode
     const triggerType = args[triggerIndex + 1] as 'stop' | 'notification';
+    isNotification = triggerType === 'notification';
 
     // Check if this hook type is enabled
     if (!config.hooks[triggerType]) { debug(`EXIT: hook ${triggerType} disabled in config`); return; }
@@ -273,8 +280,16 @@ export async function run(args: string[], stdin: string): Promise<void> {
 
     playAudio(audio, config.playback.command, sessionId);
 
-    // Refresh lock after playback starts so the Stop hook sees a fresh timestamp
-    if (isActiveVoice) {
+    // Refresh the lock after playback starts.
+    //
+    // Active voice: so the Stop hook sees a fresh timestamp.
+    //
+    // Notifications: so the cooldown actually rate-limits them. This path
+    // gates on isLocked but nothing used to write the lock, so several
+    // notifications in one turn all passed the check and spoke over each
+    // other — the documented cooldown had no effect on the only trigger it
+    // still governs.
+    if (isActiveVoice || isNotification) {
       writeLock(getLockPath());
     }
   } catch (err) {

@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import { loadConfig, getConfigPath, PROVIDER_DEFAULTS } from './config.js';
-import { activate, deactivate, isActive, setSpokeThisTurn, gcSessions, setSilencedThisTurn, consumeSilencedThisTurn } from './session.js';
-import { stopPlayback, readPlaybackState } from './player.js';
+import { activate, deactivate, getSessionPath, isActive, setSpokeThisTurn, gcSessions, setSilencedThisTurn, consumeSilencedThisTurn } from './session.js';
+import { stopPlayback, killTrackedPlayback, readPlaybackState } from './player.js';
 import { readCache, fetchElevenLabsVoices, writeCache, resolveVoiceName } from './voice-cache.js';
 
 export interface SubcommandResult {
@@ -57,7 +57,18 @@ async function handleOn(sessionId: string | null): Promise<SubcommandResult> {
 }
 
 async function handleOff(sessionId: string | null): Promise<SubcommandResult> {
-  if (sessionId) deactivate(sessionId);
+  // Reporting success when the state file survives would be a lie the user
+  // acts on: the Stop hook keeps reading it as active and narration
+  // continues after they were told voice was off.
+  if (sessionId && !deactivate(sessionId)) {
+    return {
+      message:
+        'Could not turn voice off — the session state file could not be removed. ' +
+        'Delete ' + getSessionPath(sessionId) + ' by hand, or voice will keep speaking.',
+      speak: false,
+      error: true,
+    };
+  }
   return { message: 'Voice output off for this session.', speak: false };
 }
 
@@ -81,7 +92,16 @@ async function handleStop(sessionId: string | null): Promise<SubcommandResult> {
  * asked for nothing.
  */
 async function handleTurnStart(sessionId: string | null): Promise<SubcommandResult> {
-  stopPlayback(sessionId);
+  if (sessionId) {
+    stopPlayback(sessionId);
+  } else {
+    // stopPlayback(null) is the deliberate global mode used by !shutup.
+    // Reusing it for an unresolved turn-start would let one window discard
+    // every other window's pending synthesis on every prompt — the
+    // cross-session interference this release exists to remove. Kill
+    // audible playback only.
+    killTrackedPlayback();
+  }
   if (sessionId) {
     setSpokeThisTurn(sessionId, false);
     consumeSilencedThisTurn(sessionId);
@@ -314,7 +334,7 @@ export async function dispatch(
     case 'turn-start':
       return handleTurnStart(sessionId);
     case 'gc':
-      gcSessions();
+      gcSessions(undefined, sessionId);
       return { message: '', speak: false };
     case 'provider':
       return handleProvider(args);

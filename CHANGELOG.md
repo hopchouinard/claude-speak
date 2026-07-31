@@ -26,6 +26,18 @@
 
 ### Fixed
 
+- Stale-state collection no longer removes the session it is running in, so a
+  session resuming after more than 24 hours keeps its activation.
+- A speaking subcommand now marks the turn as spoken, so `/speak on` no longer
+  confirms itself and is then followed by the Stop hook narrating the reply.
+- The notification cooldown is refreshed after a notification plays. It was
+  only ever read, so several notifications in one turn all passed the check.
+- A `UserPromptSubmit` whose session id cannot be resolved now kills audible
+  playback without stamping a global stop, which would have discarded other
+  windows' pending audio.
+- `/speak off` reports an error when the session file cannot be removed
+  instead of claiming success while narration continues.
+
 - An explicit stop now silences the rest of that turn. Previously `!shutup`
   killed the narration and the Stop hook then spoke the reply that followed
   it, so asking for silence produced a new spoken word. The flag clears at

@@ -122,13 +122,21 @@ export function activate(sessionId: string): void {
   });
 }
 
-export function deactivate(sessionId: string): void {
+/**
+ * Returns whether the session is actually inactive afterwards.
+ *
+ * The caller tells the user voice is off, so a swallowed unlink failure would
+ * be a lie: the state file survives, the Stop hook keeps reading it as active,
+ * and narration continues after an explicit `/speak off`.
+ */
+export function deactivate(sessionId: string): boolean {
   const filePath = getSessionPath(sessionId);
-  if (!fs.existsSync(filePath)) return;
+  if (!fs.existsSync(filePath)) return true;
   try {
     fs.unlinkSync(filePath);
+    return true;
   } catch {
-    // Best effort.
+    return false;
   }
 }
 
@@ -196,7 +204,10 @@ export function consumeSilencedThisTurn(sessionId: string): boolean {
  * Staleness uses mtime rather than activatedAt so that a long-running session
  * writing its turn flag each turn is never collected.
  */
-export function gcSessions(maxAgeMs: number = DEFAULT_MAX_AGE_MS): void {
+export function gcSessions(
+  maxAgeMs: number = DEFAULT_MAX_AGE_MS,
+  protectSessionId?: string | null,
+): void {
   const legacyPath = path.join(os.homedir(), '.claude-speak', 'session.json');
   if (fs.existsSync(legacyPath)) {
     try {
@@ -217,8 +228,15 @@ export function gcSessions(maxAgeMs: number = DEFAULT_MAX_AGE_MS): void {
     return;
   }
 
+  // check-setup.sh runs gc before it reports activation state, so collecting
+  // the live session's file here would silently deactivate a session that is
+  // resuming — the opposite of the guarantee that activation survives resume.
+  // mtime alone cannot distinguish "abandoned" from "idle since yesterday".
+  const protectedFile = protectSessionId ? `${protectSessionId}.json` : null;
+
   for (const entry of entries) {
     if (!entry.endsWith('.json')) continue;
+    if (protectedFile && entry === protectedFile) continue;
     const filePath = path.join(dir, entry);
     try {
       if (fs.statSync(filePath).mtimeMs < cutoff) {

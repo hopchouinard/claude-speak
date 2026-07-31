@@ -331,3 +331,80 @@ describe('silencedThisTurn', () => {
     expect(fs.unlinkSync).not.toHaveBeenCalledWith(FILE2);
   });
 });
+
+// check-setup.sh runs gc before it reports activation state. Collecting the
+// live session there silently deactivates a session that is resuming, which
+// contradicts the guarantee that activation survives resume.
+describe('gcSessions protects the live session', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(os, 'homedir').mockReturnValue(HOME);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+  });
+
+  it('keeps the protected session even when its mtime is stale', async () => {
+    const stale = Date.now() - 48 * 3600 * 1000;
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readdirSync).mockReturnValue(['abc-123.json', 'other.json'] as never);
+    vi.mocked(fs.statSync).mockReturnValue({ mtimeMs: stale } as fs.Stats);
+
+    const { gcSessions } = await import('../src/session.js');
+    gcSessions(undefined, 'abc-123');
+
+    expect(fs.unlinkSync).not.toHaveBeenCalledWith(`${SESSIONS}/abc-123.json`);
+    expect(fs.unlinkSync).toHaveBeenCalledWith(`${SESSIONS}/other.json`);
+  });
+
+  it('still collects everything when no session is protected', async () => {
+    const stale = Date.now() - 48 * 3600 * 1000;
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readdirSync).mockReturnValue(['abc-123.json'] as never);
+    vi.mocked(fs.statSync).mockReturnValue({ mtimeMs: stale } as fs.Stats);
+
+    const { gcSessions } = await import('../src/session.js');
+    gcSessions(undefined, null);
+
+    expect(fs.unlinkSync).toHaveBeenCalledWith(`${SESSIONS}/abc-123.json`);
+  });
+});
+
+// deactivate swallowed unlink errors while /speak off reported success, so
+// narration continued after the user was told voice was off (finding 6).
+describe('deactivate reports whether the state actually went away', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(os, 'homedir').mockReturnValue(HOME);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+  });
+
+  it('returns true when the file is removed', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    const { deactivate } = await import('../src/session.js');
+    expect(deactivate(ID)).toBe(true);
+  });
+
+  it('returns true when there was nothing to remove', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    const { deactivate } = await import('../src/session.js');
+    expect(deactivate(ID)).toBe(true);
+  });
+
+  it('returns false when the file cannot be removed', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.unlinkSync).mockImplementation(() => {
+      const err = new Error('read-only file system') as NodeJS.ErrnoException;
+      err.code = 'EROFS';
+      throw err;
+    });
+    const { deactivate } = await import('../src/session.js');
+    expect(deactivate(ID)).toBe(false);
+  });
+});

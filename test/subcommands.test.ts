@@ -461,3 +461,48 @@ describe('status output', () => {
     expect(result.message).toContain('sess-2');
   });
 });
+
+describe('turn-start scope when the session id is unknown', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('kills audible playback without stamping a global stop', async () => {
+    // stopPlayback(null) is the deliberate global mode used by !shutup.
+    // Reusing it here would discard every other window's pending synthesis
+    // on every prompt from an unresolved window.
+    const { dispatch } = await import('../src/subcommands.js');
+    await dispatch('turn-start', [], null);
+    expect(player.killTrackedPlayback).toHaveBeenCalled();
+    expect(player.stopPlayback).not.toHaveBeenCalled();
+  });
+
+  it('uses the session-scoped stop when the id is known', async () => {
+    const { dispatch } = await import('../src/subcommands.js');
+    await dispatch('turn-start', [], 'sess-1');
+    expect(player.stopPlayback).toHaveBeenCalledWith('sess-1');
+  });
+});
+
+describe('off reports a failure it cannot hide', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('errors when the session file could not be removed', async () => {
+    vi.mocked(session.deactivate).mockReturnValue(false);
+    const { dispatch } = await import('../src/subcommands.js');
+    const result = await dispatch('off', [], 'sess-1');
+    expect(result.error).toBe(true);
+    expect(result.message).toMatch(/could not/i);
+  });
+
+  it('confirms normally when removal succeeded', async () => {
+    vi.mocked(session.deactivate).mockReturnValue(true);
+    const { dispatch } = await import('../src/subcommands.js');
+    const result = await dispatch('off', [], 'sess-1');
+    expect(result.error).toBeFalsy();
+  });
+
+  it('protects the live session from gc', async () => {
+    const { dispatch } = await import('../src/subcommands.js');
+    await dispatch('gc', [], 'sess-1');
+    expect(session.gcSessions).toHaveBeenCalledWith(undefined, 'sess-1');
+  });
+});
